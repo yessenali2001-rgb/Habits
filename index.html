@@ -299,7 +299,7 @@ function rangeDays(a,b){ const o=[]; let d=new Date(a); while(d<=b){ o.push(fmt(
 
 /* ================= связь с таблицей ================= */
 /* Сюда вставьте адрес развёртывания Apps Script (оканчивается на /exec) */
-const API_URL = 'https://script.google.com/macros/s/AKfycbyx0rPiDSYXB9PF1tjA3DxBflQ1VagA3Ym17exjiFpXLlRSNsDcGFin-KQA2WS1G1us/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzOpO-2h2Cv8RDTcreVaSepcQJtu2VL4PmBF7E2O22BPY_4qFnQagrNjUJzB--uSmBG/exec';
 
 function netError(msg) {
   const e = new Error(msg);
@@ -308,14 +308,13 @@ function netError(msg) {
 }
 
 async function api(fn, args) {
+  // Запрос идёт через GET: Apps Script отвечает на POST перенаправлением,
+  // а браузеры при этом меняют метод и теряют тело запроса.
+  const url = API_URL + '?p=' + encodeURIComponent(JSON.stringify({ fn: fn, args: args || [] }))
+            + '&_=' + Date.now();
   let res;
   try {
-    res = await fetch(API_URL, {
-      method: 'POST',
-      // text/plain — чтобы браузер не слал предварительный OPTIONS
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ fn: fn, args: args || [] })
-    });
+    res = await fetch(url, { method: 'GET', cache: 'no-store' });
   } catch (e) {
     throw netError('Нет связи с сервером.');
   }
@@ -324,6 +323,9 @@ async function api(fn, args) {
   try { data = await res.json(); }
   catch (e) { throw netError('Сервер вернул непонятный ответ. Проверьте ссылку API_URL.'); }
   if (!data.ok) throw new Error(data.error || 'Ошибка сервера.');
+  if (data.result === undefined) {
+    throw new Error('Сервер прислал только приветствие. Обновите развёртывание Apps Script до новой версии.');
+  }
   return data.result;
 }
 
