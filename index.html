@@ -299,7 +299,7 @@ function rangeDays(a,b){ const o=[]; let d=new Date(a); while(d<=b){ o.push(fmt(
 
 /* ================= связь с таблицей ================= */
 /* Сюда вставьте адрес развёртывания Apps Script (оканчивается на /exec) */
-const API_URL = 'https://script.google.com/macros/s/AKfycbzOpO-2h2Cv8RDTcreVaSepcQJtu2VL4PmBF7E2O22BPY_4qFnQagrNjUJzB--uSmBG/exec';
+const API_URL = 'https://script.google.com/u/0/home/projects/1gZO_ogfbDqGWu-HVLl9uS-Iw5bWUpe5FLW_sGdMCpPm5RWh2i6t7XWna/edit';
 
 function netError(msg) {
   const e = new Error(msg);
@@ -1093,11 +1093,12 @@ async function boot() {
   S.code = ses.code; S.token = ses.token;
 
   const cached = LS.get(K_CACHE);
-  if (cached) { apply(cached); applyOutboxLocally(); showApp(); render(); }
+  if (cached) { apply(cached); applyOutboxLocally(); showApp(); render(); say('Обновляем данные…', 'off'); }
+  else { $('gateLead').textContent = 'Загружаем ваши привычки…'; }
 
   try {
     const d = await api('getData', [ses.code, ses.token]);
-    apply(d); applyOutboxLocally(); showApp(); render();
+    apply(d); applyOutboxLocally(); showApp(); render(); say('');
     flushOutbox();
   } catch (err) {
     if (err.offline) { updateOffline(); if (!cached) $('gateMsg').innerHTML = '<div class="msg err">Нет связи с сервером. Проверьте интернет.</div>'; }
