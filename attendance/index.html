@@ -241,6 +241,9 @@ button.cell{cursor:pointer}
     </div>
     <button class="btn pri" id="doLogin" style="width:100%">Войти</button>
     <p class="small muted" style="margin:14px 0 0">Код выдаёт руководитель кружка. Забыли — попросите сбросить.</p>
+    <p class="small muted" style="margin:8px 0 0;text-align:center">
+      <button class="btn sm" data-act="change-api" style="border:0;background:none;text-decoration:underline;color:inherit;padding:0">
+        Изменить адрес сервера</button></p>
   </div>
 </div>
 
@@ -282,7 +285,7 @@ button.cell{cursor:pointer}
 
 /* Можно вписать адрес прямо здесь (оканчивается на /exec),
    либо оставить пустым и ввести его один раз в интерфейсе. */
-const DEFAULT_API_URL = '';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxSMHVsP-EXWTsrSqde8snO7dlkCNSdn4i4V8aa9qnDMk_gOT5qvPmYHwLxIGmCCX_2/exec';
 
 const LS = {
   get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } },
@@ -1590,6 +1593,18 @@ async function act(a, el, ev){
   case 'change-pin': {
     const r = await call('changePin', [S.token, val('pinOld'), val('pinNew')], 'Код изменён');
     if(r.ok){ document.getElementById('pinOld').value = ''; document.getElementById('pinNew').value = ''; }
+    break;
+  }
+
+  /* --- адрес сервера --- */
+  case 'change-api': {
+    const cur = LS.get(K_API) || DEFAULT_API_URL || '';
+    LS.del(K_API);
+    show('setup');
+    const f = document.getElementById('apiUrl');
+    if(f) f.value = cur;
+    document.getElementById('setupMsg').textContent =
+      'Адрес веб-приложения меняется, если сделать новое развёртывание Apps Script.';
     break;
   }
 
