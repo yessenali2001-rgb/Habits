@@ -151,6 +151,13 @@ tbody tr:hover{background:var(--sunk)}
 .cell.e{background:var(--gold); color:var(--navy); border-color:transparent}
 .cell.a{background:var(--coral); color:#fff; border-color:transparent}
 button.cell{cursor:pointer}
+.mx{display:inline-flex; min-width:26px; height:24px; padding:0 6px; align-items:center; justify-content:center;
+    border-radius:7px; font-size:12px; font-weight:600; background:var(--sunk); border:1px solid var(--line); color:var(--muted)}
+.mx.gold{background:#C9B291; color:#121233; border-color:transparent}
+.mx.silver{background:#D9D9E3; color:#121233; border-color:transparent}
+.mx.bronze{background:#E8C4A0; color:#121233; border-color:transparent}
+.mx.honor{background:rgba(100,144,232,.18); color:var(--blue); border-color:transparent}
+.mx.part{background:transparent}
 .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin-top:10px}
 .legend span{display:flex; align-items:center; gap:6px}
 .dot{width:12px; height:12px; border-radius:4px; display:inline-block}
@@ -299,8 +306,14 @@ const ST = {
 };
 const LEVELS = { school:'Школьный', city:'Городской', region:'Областной', republic:'Республиканский', international:'Международный' };
 const RESULTS = { gold:'1 место', silver:'2 место', bronze:'3 место', honor:'Грамота', part:'Участие' };
+const RES_SHORT = { gold:'1', silver:'2', bronze:'3', honor:'★', part:'·' };
 const TSTAT = { todo:'Изучить', doing:'В процессе', done:'Освоено' };
 const ROLES = { admin:'Администратор', assistant:'Помощник', student:'Ученик' };
+const TEAM_ROLES = { captain:'Капитан', manager:'Менеджер', builder:'Билдер',
+                     programmer:'Программист', smm:'SMM', slider:'Дизайнер / слайды' };
+/* роли из годового плана → роли в команде */
+const PLAN_ROLE = { 'Captain':'captain', 'Manager':'manager', 'Builder':'builder',
+                    'Programmer':'programmer', 'SMM':'smm', 'Slider/Layer':'slider' };
 
 /* ================= даты ================= */
 const pad = n => String(n).padStart(2,'0');
@@ -318,7 +331,8 @@ const S = {
   api: '', token: '', me: null, settings: null,
   people: [], marks: [], awards: [], topics: [],
   marksIdx: {}, tab: '', day: todayStr(), month: todayStr().slice(0,7),
-  from: '', to: '', sort: 'miss', openStudent: '', busy: false
+  from: '', to: '', sort: 'miss', openStudent: '', busy: false,
+  fTeam: '', fCat: '', fRole: '', q: ''
 };
 
 function api(fn, args){
@@ -354,6 +368,27 @@ const students = (all) => S.people
   .filter(p => p.role==='student' && (all || p.active))
   .sort((a,b) => a.name.localeCompare(b.name,'ru'));
 const staffList = () => S.people.filter(p => p.role!=='student').sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+const uniq = arr => Array.from(new Set(arr.filter(Boolean))).sort((a,b) => a.localeCompare(b,'ru'));
+const teams = () => uniq(S.people.filter(p => p.role==='student').map(p => p.team));
+const cats  = () => uniq(S.people.filter(p => p.role==='student').map(p => p.category));
+/* список учеников с учётом выбранных фильтров по команде и категории */
+const visible = all => students(all)
+  .filter(p => (!S.fTeam || p.team === S.fTeam) && (!S.fCat || p.category === S.fCat));
+const hasFilter = () => !!(S.fTeam || S.fCat);
+
+function filterBar(){
+  if(!teams().length && !cats().length) return '';
+  const opt = (list, cur) => '<option value="">Все</option>' +
+    list.map(x => '<option value="' + esc(x) + '"' + (x===cur?' selected':'') + '>' + esc(x) + '</option>').join('');
+  return '<div class="row" style="margin-bottom:14px">' +
+    (teams().length ? '<label class="small muted nowrap">Команда ' +
+      '<select class="in" style="width:auto" data-act="f-team">' + opt(teams(), S.fTeam) + '</select></label>' : '') +
+    (cats().length ? '<label class="small muted nowrap">Категория ' +
+      '<select class="in" style="width:auto" data-act="f-cat">' + opt(cats(), S.fCat) + '</select></label>' : '') +
+    (hasFilter() ? '<button class="btn sm" data-act="f-clear">Сбросить</button>' : '') +
+    '<span class="muted small">Показано: ' + visible().length + ' из ' + students().length + '</span></div>';
+}
+const who = p => [p.cls, p.team, p.category].filter(Boolean).join(' · ');
 const personById = id => S.people.find(p => p.id === id);
 const isStaff = () => S.me && (S.me.role==='admin' || S.me.role==='assistant');
 const isAdmin = () => S.me && S.me.role==='admin';
@@ -545,10 +580,10 @@ async function refresh(){
 function tabList(){
   if(isStaff()) return [
     ['day','Журнал'], ['grid','Таблица'], ['report','Анализ года'],
-    ['people','Ученики'], ['extra','Олимпиады и темы'],
+    ['people','Ученики'], ['extra','Олимпиады и темы'], ['plan','План года'],
     ...(isAdmin() ? [['settings','Настройки']] : [])
   ];
-  return [['my','Мои занятия'], ['myextra','Олимпиады и темы']];
+  return [['my','Мои занятия'], ['myextra','Олимпиады и темы'], ['plan','План года']];
 }
 
 function render(){
@@ -559,7 +594,7 @@ function render(){
   const v = document.getElementById('view');
   const fn = {
     day: viewDay, grid: viewGrid, report: viewReport, people: viewPeople,
-    extra: viewExtra, settings: viewSettings, my: viewMy, myextra: viewMyExtra
+    extra: viewExtra, plan: viewPlan, settings: viewSettings, my: viewMy, myextra: viewMyExtra
   }[S.tab];
   v.innerHTML = fn ? fn() : '';
   window.scrollTo({ top:0 });
@@ -568,8 +603,8 @@ function render(){
 /* ================= ЖУРНАЛ ДНЯ ================= */
 function viewDay(){
   const ds = S.day, plan = planFor(ds), d = parseD(ds), hol = holidayMap()[ds];
-  const list = students().filter(p => !p.since || p.since <= ds);
-  const later = students().length - list.length;
+  const list = visible().filter(p => !p.since || p.since <= ds);
+  const later = visible().length - list.length;
 
   let info;
   if(hol) info = '<span class="chip gold">Нет занятий</span> ' + esc(hol);
@@ -590,7 +625,7 @@ function viewDay(){
         '" data-act="hours" data-id="' + p.id + '" title="Сколько часов был">'
       : '';
     return '<li><div class="pname">' + esc(p.name) +
-      (m && m.n ? '<i>' + esc(m.n) + '</i>' : '') + '</div>' +
+      '<i>' + esc(who(p)) + (m && m.n ? ' · ' + esc(m.n) : '') + '</i></div>' +
       '<div class="seg">' + seg + '</div>' + hours +
       (cur ? '<button class="btn sm" data-act="clear" data-id="' + p.id + '" title="Снять отметку">✕</button>' : '') +
       '</li>';
@@ -600,6 +635,7 @@ function viewDay(){
 
   return '<div class="head"><h2>' + WD_FULL[d.getDay()] + ', ' + human(ds) + '</h2>' +
     '<span class="muted small">Отмечено ' + marked + ' из ' + list.length + '</span></div>' +
+    filterBar() +
     '<div class="daybar">' +
       '<button class="btn sm" data-act="day-shift" data-n="-1">‹ Назад</button>' +
       '<input class="in" style="width:auto" type="date" value="' + ds + '" data-act="day-set">' +
@@ -629,7 +665,7 @@ function viewGrid(){
   const y = Number(ym.slice(0,4)), mo = Number(ym.slice(5,7)) - 1;
   const first = fmt(new Date(y, mo, 1)), last = fmt(new Date(y, mo+1, 0));
   const days = classDays(first, last);
-  const list = students();
+  const list = visible();
 
   const head = '<tr><th class="stick">Ученик</th>' +
     days.map(ds => '<th title="' + human(ds) + '">' + parseD(ds).getDate() +
@@ -656,6 +692,7 @@ function viewGrid(){
     '<div class="row"><button class="btn sm" data-act="mon-shift" data-n="-1">‹</button>' +
     '<input class="in" style="width:auto" type="month" value="' + ym + '" data-act="mon-set">' +
     '<button class="btn sm" data-act="mon-shift" data-n="1">›</button></div></div>' +
+    filterBar() +
     (days.length
       ? '<div class="sect"><div class="scroll"><table class="grid"><thead>' + head + '</thead><tbody>' +
         (body || '<tr><td class="muted">Нет учеников</td></tr>') + '</tbody></table></div>' +
@@ -668,7 +705,7 @@ function viewGrid(){
 
 /* ================= АНАЛИЗ ЗА ГОД ================= */
 function reportRows(){
-  return students(true).map(p => {
+  return visible(true).map(p => {
     const st = statsFor(p.id, S.from, S.to);
     return { p, st };
   }).filter(r => r.p.active || r.st.days > 0);
@@ -708,7 +745,8 @@ function viewReport(){
     return '<tr>' +
       '<td class="num muted">' + (i+1) + '</td>' +
       '<td><a href="#" data-act="open-student" data-id="' + r.p.id + '">' + esc(r.p.name) + '</a>' +
-        (r.p.active ? '' : ' <span class="chip">в архиве</span>') + '</td>' +
+        (r.p.active ? '' : ' <span class="chip">в архиве</span>') +
+        (who(r.p) ? '<br><span class="muted small">' + esc(who(r.p)) + '</span>' : '') + '</td>' +
       '<td class="num">' + st.held + '</td>' +
       '<td class="num">' + st.p + '</td>' +
       '<td class="num">' + st.l + '</td>' +
@@ -727,6 +765,7 @@ function viewReport(){
 
   return '<div class="head"><h2>Итоги посещаемости</h2>' +
     '<button class="btn sm" data-act="csv-report">Выгрузить CSV</button></div>' +
+    filterBar() +
 
     '<div class="sect"><div class="row">' +
       '<div class="field" style="margin:0"><label>С</label><input class="in" type="date" value="' + S.from + '" data-act="from"></div>' +
@@ -778,12 +817,12 @@ function csv(rows){
   }).join(';')).join('\n');
 }
 function csvReport(){
-  const rows = [['№','Ученик','Зачислен','Занятий по расписанию','Проведено','Был','Опозданий','Уважительных',
+  const rows = [['№','Ученик','Класс','Команда','Категория','Зачислен','Занятий по расписанию','Проведено','Был','Опозданий','Уважительных',
                  'Пропусков','Не отмечено','Часы по плану (расписание)','Часы по проведённым','Часы посещено',
                  'Часы пропущено','Часы по уважительной','Посещаемость %']];
   sortRows(reportRows()).forEach((r,i) => {
     const s = r.st;
-    rows.push([i+1, r.p.name, r.p.since, s.days, s.held, s.p, s.l, s.e, s.a, s.unmarked,
+    rows.push([i+1, r.p.name, r.p.cls, r.p.team, r.p.category, r.p.since, s.days, s.held, s.p, s.l, s.e, s.a, s.unmarked,
                nf(s.hoursPlanAll), nf(s.hoursPlan), nf(s.hoursFact), nf(s.hoursMissed),
                nf(s.hoursExcused), s.percent]);
   });
@@ -823,13 +862,16 @@ function showPins(list, title){
 /* ================= УЧЕНИКИ ================= */
 function viewPeople(){
   if(S.openStudent) return viewStudentCard(S.openStudent);
-  const list = students(true);
+  const list = visible(true);
   const body = list.map(p => {
     const st = statsFor(p.id, S.from, S.to);
     return '<tr>' +
       '<td><a href="#" data-act="open-student" data-id="' + p.id + '">' + esc(p.name) + '</a>' +
         (p.active ? '' : ' <span class="chip">архив</span>') + '</td>' +
-      '<td class="muted small">' + (p.since || '') + '</td>' +
+      '<td>' + esc(p.cls) + '</td>' +
+      '<td>' + (p.team ? '<span class="chip">' + esc(p.team) + '</span>' : '') + '</td>' +
+      '<td>' + esc(p.category) + '</td>' +
+      '<td class="muted small">' + (p.teamRole ? TEAM_ROLES[p.teamRole] || p.teamRole : '') + '</td>' +
       '<td class="num">' + st.percent + '%</td>' +
       '<td class="num">' + st.a + '</td>' +
       '<td class="num">' + S.awards.filter(a => a.u === p.id).length + '</td>' +
@@ -841,10 +883,17 @@ function viewPeople(){
       '</div></td></tr>';
   }).join('');
 
+  const dl = '<datalist id="teamList">' + teams().map(t => '<option value="' + esc(t) + '">').join('') + '</datalist>' +
+             '<datalist id="catList">' + cats().map(c => '<option value="' + esc(c) + '">').join('') + '</datalist>';
+
   return '<div class="head"><h2>Ученики <span class="muted small">(' + students().length + ' активных)</span></h2></div>' +
+    filterBar() + dl +
     '<div class="sect"><h3>Добавить ученика</h3>' +
       '<div class="row">' +
         '<input class="in grow" id="newName" placeholder="Фамилия и имя">' +
+        '<input class="in" style="width:90px" id="newCls" placeholder="Класс">' +
+        '<input class="in" style="width:130px" id="newTeam" list="teamList" placeholder="Команда">' +
+        '<input class="in" style="width:110px" id="newCat" list="catList" placeholder="FLL / FTC">' +
         '<input class="in" style="width:auto" type="date" id="newSince" value="' + todayStr() + '" title="С какой даты числится">' +
         '<button class="btn pri" data-act="add-student">Добавить</button>' +
       '</div>' +
@@ -852,13 +901,16 @@ function viewPeople(){
         '<p class="small muted" style="margin:10px 0 6px">По одному имени в строке.</p>' +
         '<textarea class="in" id="bulkNames" placeholder="Иванов Иван&#10;Петрова Мария"></textarea>' +
         '<div class="row" style="margin-top:10px">' +
+          '<input class="in" style="width:130px" id="bulkTeam" list="teamList" placeholder="Команда">' +
+          '<input class="in" style="width:110px" id="bulkCat" list="catList" placeholder="FLL / FTC">' +
           '<input class="in" style="width:auto" type="date" id="bulkSince" value="' + todayStr() + '">' +
           '<button class="btn" data-act="add-bulk">Добавить всех</button></div>' +
       '</details></div>' +
     '<div class="sect"><div class="scroll"><table><thead><tr>' +
-      '<th>Ученик</th><th>Зачислен</th><th class="num">Посещ.</th><th class="num">Проп.</th>' +
+      '<th>Ученик</th><th>Класс</th><th>Команда</th><th>Кат.</th><th>Роль</th>' +
+      '<th class="num">Посещ.</th><th class="num">Проп.</th>' +
       '<th class="num">Олимп.</th><th class="num">Тем</th><th></th></tr></thead><tbody>' +
-      (body || '<tr><td colspan="7" class="muted">Список пуст</td></tr>') + '</tbody></table></div>' +
+      (body || '<tr><td colspan="11" class="muted">Список пуст</td></tr>') + '</tbody></table></div>' +
       '<p class="small muted" style="margin:10px 0 0">Посещаемость и пропуски — за период ' + human(S.from) + ' — ' + human(S.to) + '.</p></div>';
 }
 
@@ -869,7 +921,9 @@ function viewStudentCard(id){
   const aw = S.awards.filter(a => a.u === id).sort((a,b) => (b.date||'').localeCompare(a.date||''));
   const tp = S.topics.filter(t => t.u === id);
 
-  return '<div class="head"><h2>' + esc(p.name) + '</h2>' +
+  return '<div class="head"><h2>' + esc(p.name) +
+      (who(p) ? ' <span class="muted small">' + esc(who(p)) +
+        (p.teamRole ? ' · ' + (TEAM_ROLES[p.teamRole] || p.teamRole) : '') + '</span>' : '') + '</h2>' +
       '<button class="btn sm" data-act="back-people">← К списку</button></div>' +
 
     '<div class="cards">' +
@@ -881,8 +935,17 @@ function viewStudentCard(id){
       tile(aw.length, '', 'Олимпиад') +
     '</div>' +
 
-    (isStaff() ? '<div class="sect"><h3>Данные ученика</h3><div class="row">' +
+    (isStaff() ? '<div class="sect"><h3>Данные ученика</h3>' +
+      '<datalist id="teamList">' + teams().map(t => '<option value="' + esc(t) + '">').join('') + '</datalist>' +
+      '<datalist id="catList">' + cats().map(c => '<option value="' + esc(c) + '">').join('') + '</datalist>' +
+      '<div class="row">' +
       '<div class="field grow" style="margin:0"><label>Имя</label><input class="in" id="edName" value="' + esc(p.name) + '"></div>' +
+      '<div class="field" style="margin:0;width:90px"><label>Класс</label><input class="in" id="edCls" value="' + esc(p.cls) + '"></div>' +
+      '<div class="field" style="margin:0;width:140px"><label>Команда</label><input class="in" id="edTeam" list="teamList" value="' + esc(p.team) + '"></div>' +
+      '<div class="field" style="margin:0;width:110px"><label>Категория</label><input class="in" id="edCat" list="catList" value="' + esc(p.category) + '"></div>' +
+      '<div class="field" style="margin:0;width:170px"><label>Роль в команде</label><select class="in" id="edRole">' +
+        '<option value="">—</option>' + Object.keys(TEAM_ROLES).map(k =>
+          '<option value="' + k + '"' + (p.teamRole===k?' selected':'') + '>' + TEAM_ROLES[k] + '</option>').join('') + '</select></div>' +
       '<div class="field" style="margin:0"><label>Зачислен с</label><input class="in" id="edSince" type="date" value="' + (p.since||'') + '"></div>' +
       '<div class="row" style="align-self:flex-end">' +
         '<button class="btn pri" data-act="save-person" data-id="' + id + '">Сохранить</button>' +
@@ -957,8 +1020,60 @@ function topicsTable(list, withName){
       }).join('') + '</tbody></table></div>';
 }
 
+function awardsMatrix(){
+  /* порядок колонок — как соревнования идут в данных (хронология сезона) */
+  const titles = [];
+  S.awards.forEach(a => { if(a.title && titles.indexOf(a.title) < 0) titles.push(a.title); });
+  if(!titles.length) return '';
+
+  const rows = visible(true).map(p => {
+    const own = S.awards.filter(a => a.u === p.id);
+    if(!own.length) return '';
+    const cells = titles.map(t => {
+      const a = own.find(x => x.title === t);
+      if(!a) return '<td></td>';
+      return '<td><span class="mx ' + a.result + '" title="' + esc(t + ' — ' + (RESULTS[a.result]||'') +
+        (a.note ? ': ' + a.note : '')) + '">' + (RES_SHORT[a.result] || '•') + '</span></td>';
+    }).join('');
+    const prizes = own.filter(a => ['gold','silver','bronze'].indexOf(a.result) >= 0).length;
+    return '<tr><td class="stick"><a href="#" data-act="open-student" data-id="' + p.id + '">' + esc(p.name) + '</a>' +
+      (p.team ? '<br><span class="muted small">' + esc(p.team) + '</span>' : '') + '</td>' +
+      cells + '<td class="num"><b>' + prizes + '</b></td></tr>';
+  }).filter(Boolean).join('');
+
+  if(!rows) return '';
+  return '<div class="sect"><h3>Кто где выступал</h3><div class="scroll"><table class="grid">' +
+    '<thead><tr><th class="stick">Ученик</th>' +
+    titles.map(t => '<th title="' + esc(t) + '"><div style="writing-mode:vertical-rl;transform:rotate(180deg);' +
+      'max-height:150px;overflow:hidden;font-weight:600;padding:4px 0">' + esc(t) + '</div></th>').join('') +
+    '<th>Приз.</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div class="legend">' +
+      '<span><i class="dot" style="background:#C9B291"></i>1 — первое место</span>' +
+      '<span><i class="dot" style="background:#D9D9E3"></i>2 — второе</span>' +
+      '<span><i class="dot" style="background:#E8C4A0"></i>3 — третье</span>' +
+      '<span><i class="dot" style="background:rgba(100,144,232,.5)"></i>★ — награда или грамота</span>' +
+      '<span><i class="dot" style="border:1px solid var(--line2)"></i>· — участие</span>' +
+    '</div><p class="small muted" style="margin:8px 0 0">Наведите на клетку — увидите, что именно получено.</p></div>';
+}
+
+const ROW_CAP = 60;
+const limitRows = list => list.slice(0, ROW_CAP);
+function moreNote(shown, total){
+  if(shown <= ROW_CAP) return '';
+  return '<p class="small muted" style="margin:10px 0 0">Показаны первые ' + ROW_CAP + ' из ' + shown +
+    '. Уточните поиск или фильтр, чтобы увидеть остальные' + (total !== shown ? ' (всего записей: ' + total + ')' : '') + '.</p>';
+}
+
 function viewExtra(){
+  const vis = {};
+  visible(true).forEach(p => { vis[p.id] = p; });
+  const q = S.q.trim().toLowerCase();
+  const match = (p, text) => !q ||
+    (p && p.name.toLowerCase().indexOf(q) >= 0) || String(text).toLowerCase().indexOf(q) >= 0;
+
   const aw = S.awards.slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const awShown = aw.filter(a => vis[a.u] && match(vis[a.u], a.title + ' ' + a.subject + ' ' + a.note));
+  const tpShown = S.topics.filter(t => vis[t.u] && match(vis[t.u], t.title + ' ' + t.subject));
   const byStudent = {};
   S.awards.forEach(a => { byStudent[a.u] = (byStudent[a.u]||0) + 1; });
   const top = students().map(p => ({ p, n: byStudent[p.id]||0 })).filter(x => x.n).sort((a,b) => b.n-a.n);
@@ -974,13 +1089,81 @@ function viewExtra(){
       tile(S.topics.filter(t => t.status!=='done').length, '', 'Тем в работе') +
     '</div>' +
 
-    '<div class="sect"><div class="head"><h3>Олимпиады</h3>' +
+    filterBar() +
+    awardsMatrix() +
+    competitionsBlock() +
+
+    '<div class="sect"><div class="head"><h3>Все записи об олимпиадах</h3>' +
       (isStaff() ? '<button class="btn sm pri" data-act="award-form">Добавить запись</button>' : '') + '</div>' +
-      awardsTable(aw, true) + '</div>' +
+      '<details' + (S.q ? ' open' : '') + '><summary class="muted small" style="cursor:pointer;margin-bottom:12px">' +
+        'Развернуть список (' + awShown.length + ')</summary>' +
+        '<div class="row" style="margin-bottom:12px">' +
+          '<input class="in grow" placeholder="Поиск по ученику или соревнованию" value="' + esc(S.q) + '" data-act="q">' +
+        '</div>' +
+        awardsTable(limitRows(awShown), true) +
+        moreNote(awShown.length, aw.length) +
+      '</details></div>' +
 
     '<div class="sect"><div class="head"><h3>Темы для изучения</h3>' +
       (isStaff() ? '<button class="btn sm pri" data-act="topic-form">Добавить тему</button>' : '') + '</div>' +
-      topicsTable(S.topics, true) + '</div>';
+      topicsTable(limitRows(tpShown), true) +
+      moreNote(tpShown.length, S.topics.length) + '</div>';
+}
+
+function competitionsBlock(){
+  const list = S.settings.competitions || [];
+  const rows = list.map((c,i) =>
+    '<tr><td>' + esc(c.title) + '</td><td class="muted">' + esc(c.when) + '</td>' +
+    '<td class="muted small">' + esc(c.term) + '</td>' +
+    '<td>' + (c.status ? '<span class="chip blue">' + esc(c.status) + '</span>' : '') + '</td>' +
+    (isAdmin() ? '<td><button class="btn sm danger" data-act="comp-del" data-i="' + i + '">✕</button></td>' : '') +
+    '</tr>').join('');
+  return '<div class="sect"><h3>Календарь соревнований</h3>' +
+    (rows ? '<div class="scroll"><table><thead><tr><th>Соревнование</th><th>Когда</th><th>Четверть</th><th>Статус</th>' +
+            (isAdmin() ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+          : '<p class="muted">Пока пусто.</p>') +
+    (isAdmin() ? '<div class="row" style="margin-top:12px">' +
+      '<input class="in grow" id="compTitle" placeholder="Название соревнования">' +
+      '<input class="in" style="width:150px" id="compWhen" placeholder="Когда">' +
+      '<input class="in" style="width:110px" id="compTerm" placeholder="Четверть">' +
+      '<button class="btn" data-act="comp-add">Добавить</button></div>' : '') + '</div>';
+}
+
+function compDatalist(){
+  const titles = uniq((S.settings.competitions||[]).map(c => c.title).concat(S.awards.map(a => a.title)));
+  return '<datalist id="compList">' + titles.map(t => '<option value="' + esc(t) + '">').join('') + '</datalist>';
+}
+
+/* ================= ГОДОВОЙ ПЛАН ================= */
+function viewPlan(){
+  const plan = S.settings.plan || [];
+  const roles = uniq(plan.map(x => x.role));
+  const mine = S.me.role === 'student' ? personById(S.me.id) : null;
+  const shown = plan.filter(x => !S.fRole || x.role === S.fRole);
+
+  const chips = '<div class="row" style="margin-bottom:14px">' +
+    '<button class="btn sm' + (S.fRole ? '' : ' pri') + '" data-act="plan-role" data-r="">Все</button>' +
+    roles.map(r => '<button class="btn sm' + (S.fRole === r ? ' pri' : '') + '" data-act="plan-role" data-r="' +
+      esc(r) + '">' + esc(r) + '</button>').join('') + '</div>';
+
+  let month = '';
+  const rows = shown.map(x => {
+    const head = x.month !== month ? (month = x.month, true) : false;
+    return (head ? '<tr><td colspan="5" style="background:var(--sunk);font-weight:600">' + esc(x.month) + '</td></tr>' : '') +
+      '<tr><td class="muted small nowrap">' + esc(x.week) + ' нед.</td>' +
+      '<td class="nowrap"><span class="chip">' + esc(x.role) + '</span></td>' +
+      '<td style="white-space:normal">' + esc(x.task) + '</td>' +
+      (isStaff() ? '<td><button class="btn sm" data-act="plan-assign" data-n="' + esc(x.n) + '" data-r="' +
+        esc(x.role) + '" data-t="' + esc(x.task) + '">Назначить</button></td>' : '') + '</tr>';
+  }).join('');
+
+  return '<div class="head"><h2>План на учебный год</h2>' +
+      (mine && mine.teamRole ? '<span class="muted small">Ваша роль: ' +
+        (TEAM_ROLES[mine.teamRole] || mine.teamRole) + '</span>' : '') + '</div>' +
+    (plan.length
+      ? chips + '<div class="sect"><div class="scroll"><table><tbody>' + rows + '</tbody></table></div>' +
+        (isStaff() ? '<p class="small muted" style="margin:10px 0 0">«Назначить» превращает пункт плана в тему для ученика, команды или всех сразу.</p>' : '') + '</div>'
+      : '<div class="sect muted">План пока не загружен. Его можно перенести из таблицы кружка скриптом import-club-data.gs.</div>');
 }
 
 function studentOptions(sel){
@@ -990,10 +1173,10 @@ function studentOptions(sel){
 function awardForm(id, uid){
   const a = id ? S.awards.find(x => x.id === id) : null;
   const u = a ? a.u : (uid || (students()[0] || {}).id || '');
-  modal('<h3>' + (a ? 'Изменить запись' : 'Олимпиада или достижение') + '</h3>' +
+  modal('<h3>' + (a ? 'Изменить запись' : 'Олимпиада или достижение') + '</h3>' + compDatalist() +
     '<div class="field"><label>Ученик</label><select class="in" id="awU">' + studentOptions(u) + '</select></div>' +
     '<div class="row">' +
-      '<div class="field grow"><label>Название олимпиады / конкурса</label><input class="in" id="awTitle" value="' + esc(a?a.title:'') + '"></div>' +
+      '<div class="field grow"><label>Название олимпиады / конкурса</label><input class="in" id="awTitle" list="compList" value="' + esc(a?a.title:'') + '"></div>' +
       '<div class="field" style="min-width:150px"><label>Дата</label><input class="in" type="date" id="awDate" value="' + (a?a.date:todayStr()) + '"></div>' +
     '</div>' +
     '<div class="row">' +
@@ -1009,14 +1192,30 @@ function awardForm(id, uid){
     '<button class="btn pri" data-act="award-save" data-id="' + (id||'') + '">Сохранить</button>');
 }
 
-function topicForm(id, uid){
+function topicForm(id, uid, preset){
   const t = id ? S.topics.find(x => x.id === id) : null;
   const u = t ? t.u : (uid || (students()[0] || {}).id || '');
+  preset = preset || {};
+  const sel = (list, cur) => list.map(x =>
+    '<option value="' + esc(x) + '"' + (x===cur?' selected':'') + '>' + esc(x) + '</option>').join('');
+
   modal('<h3>' + (t ? 'Изменить тему' : 'Тема для изучения') + '</h3>' +
-    '<div class="field"><label>Ученик</label><select class="in" id="tpU">' + studentOptions(u) + '</select></div>' +
+    (t || uid ? '<input type="hidden" id="tpTarget" value="one">' :
+      '<div class="field"><label>Кому назначить</label>' +
+      '<select class="in" id="tpTarget" data-act="tp-target">' +
+        '<option value="one">Одному ученику</option>' +
+        (teams().length ? '<option value="team">Всей команде</option>' : '') +
+        '<option value="role">Всем с ролью в команде</option>' +
+        '<option value="all">Всем ученикам</option>' +
+      '</select></div>') +
+    '<div class="field" id="tgOne"><label>Ученик</label><select class="in" id="tpU">' + studentOptions(u) + '</select></div>' +
+    '<div class="field hide" id="tgTeam"><label>Команда</label><select class="in" id="tpTeam">' + sel(teams(), preset.team) + '</select></div>' +
+    '<div class="field hide" id="tgRole"><label>Роль</label><select class="in" id="tpRole">' +
+      Object.keys(TEAM_ROLES).map(k => '<option value="' + k + '"' + (preset.role===k?' selected':'') +
+        '>' + TEAM_ROLES[k] + '</option>').join('') + '</select></div>' +
     '<div class="row">' +
-      '<div class="field grow"><label>Тема</label><input class="in" id="tpTitle" value="' + esc(t?t.title:'') + '"></div>' +
-      '<div class="field" style="min-width:150px"><label>Предмет</label><input class="in" id="tpSubj" value="' + esc(t?t.subject:'') + '"></div>' +
+      '<div class="field grow"><label>Тема</label><input class="in" id="tpTitle" value="' + esc(t ? t.title : (preset.title||'')) + '"></div>' +
+      '<div class="field" style="min-width:150px"><label>Предмет / направление</label><input class="in" id="tpSubj" value="' + esc(t ? t.subject : (preset.subject||'')) + '"></div>' +
     '</div>' +
     '<div class="row">' +
       '<div class="field grow"><label>Статус</label><select class="in" id="tpStatus">' +
@@ -1025,6 +1224,21 @@ function topicForm(id, uid){
     '</div>' +
     '<div class="field"><label>Примечание</label><input class="in" id="tpNote" value="' + esc(t?t.note:'') + '"></div>' +
     '<button class="btn pri" data-act="topic-save" data-id="' + (id||'') + '">Сохранить</button>');
+
+  if(preset.target) {
+    const el = document.getElementById('tpTarget');
+    if(el){ el.value = preset.target; el.dispatchEvent(new Event('change', { bubbles:true })); }
+  }
+}
+
+/* кому назначается тема из формы */
+function topicTargets(){
+  const mode = (document.getElementById('tpTarget') || {}).value || 'one';
+  if(mode === 'one') return [val('tpU')];
+  if(mode === 'all') return students().map(p => p.id);
+  if(mode === 'team'){ const t = val('tpTeam'); return students().filter(p => p.team === t).map(p => p.id); }
+  const r = val('tpRole');
+  return students().filter(p => p.teamRole === r).map(p => p.id);
 }
 
 /* ================= НАСТРОЙКИ ================= */
@@ -1205,6 +1419,26 @@ async function act(a, el, ev){
     render(); break;
   }
   case 'sort': S.sort = el.dataset.k; render(); break;
+  case 'f-clear': S.fTeam = ''; S.fCat = ''; render(); break;
+  case 'plan-role': S.fRole = el.dataset.r; render(); break;
+  case 'plan-assign':
+    topicForm('', '', { title: el.dataset.t, subject: 'План года · ' + el.dataset.r + ' · неделя ' + el.dataset.n,
+                        target: PLAN_ROLE[el.dataset.r] ? 'role' : 'all', role: PLAN_ROLE[el.dataset.r] || '' });
+    break;
+  case 'comp-add': {
+    const title = val('compTitle');
+    if(!title){ say('Укажите название соревнования.', 'err'); return; }
+    const list = (S.settings.competitions||[]).concat([{ title, when: val('compWhen'), term: val('compTerm'), status:'' }]);
+    const r = await call('saveSettings', [S.token, { competitions: list }], 'Добавлено');
+    if(r.ok){ S.settings = r.v; render(); }
+    break;
+  }
+  case 'comp-del': {
+    const list = (S.settings.competitions||[]).filter((c,i) => i !== Number(el.dataset.i));
+    const r = await call('saveSettings', [S.token, { competitions: list }], 'Удалено');
+    if(r.ok){ S.settings = r.v; render(); }
+    break;
+  }
 
   /* --- выгрузка --- */
   case 'csv-report': csvReport(); break;
@@ -1219,14 +1453,16 @@ async function act(a, el, ev){
     if(!name){ say('Введите имя.', 'err'); return; }
     if(S.people.some(p => p.name.toLowerCase() === name.toLowerCase()) &&
        !confirm('Участник с таким именем уже есть. Их будет сложно различить в списке входа. Всё равно добавить?')) return;
-    const r = await call('addStudent', [S.token, name, val('newSince')]);
+    const r = await call('addStudent', [S.token, name, val('newSince'),
+      { cls: val('newCls'), team: val('newTeam'), category: val('newCat') }]);
     if(r.ok){ S.people.push(r.v.person); render(); showPins([{ name:r.v.person.name, pin:r.v.pin }]); }
     break;
   }
   case 'add-bulk': {
     const names = val('bulkNames').split('\n').map(x => x.trim()).filter(Boolean);
     if(!names.length){ say('Список пуст.', 'err'); return; }
-    const r = await call('addStudents', [S.token, names, val('bulkSince')]);
+    const r = await call('addStudents', [S.token, names, val('bulkSince'),
+      { team: val('bulkTeam'), category: val('bulkCat') }]);
     if(r.ok){
       r.v.forEach(x => S.people.push(x.person));
       render();
@@ -1249,7 +1485,9 @@ async function act(a, el, ev){
   }
   case 'save-person': {
     const p = personById(el.dataset.id);
-    const r = await call('savePerson', [S.token, p.id, { name: val('edName'), since: val('edSince') }], 'Сохранено');
+    const r = await call('savePerson', [S.token, p.id, {
+      name: val('edName'), since: val('edSince'), cls: val('edCls'),
+      team: val('edTeam'), category: val('edCat'), teamRole: val('edRole') }], 'Сохранено');
     if(r.ok){ Object.assign(p, r.v); render(); }
     break;
   }
@@ -1288,13 +1526,21 @@ async function act(a, el, ev){
   }
 
   /* --- темы --- */
-  case 'topic-form': topicForm(el.dataset.id || '', el.dataset.u || ''); break;
+  case 'topic-form': topicForm(el.dataset.id || '', el.dataset.u || '', null); break;
   case 'topic-save': {
-    const t = { id: el.dataset.id || '', u: val('tpU'), title: val('tpTitle'), subject: val('tpSubj'),
-                status: val('tpStatus'), due: val('tpDue'), note: val('tpNote') };
-    if(!t.title){ say('Укажите тему.', 'err'); return; }
-    const r = await call('saveTopic', [S.token, t], 'Сохранено');
-    if(r.ok){ S.topics = S.topics.filter(x => x.id !== r.v.id).concat([r.v]); closeModal(); render(); }
+    const base = { title: val('tpTitle'), subject: val('tpSubj'),
+                   status: val('tpStatus'), due: val('tpDue'), note: val('tpNote') };
+    if(!base.title){ say('Укажите тему.', 'err'); return; }
+    const ids = el.dataset.id ? [val('tpU')] : topicTargets();
+    if(!ids.length || !ids[0]){ say('Некому назначать: в этой группе нет учеников.', 'err'); return; }
+    if(el.dataset.id || ids.length === 1){
+      const t = Object.assign({ id: el.dataset.id || '', u: ids[0] }, base);
+      const r = await call('saveTopic', [S.token, t], 'Сохранено');
+      if(r.ok){ S.topics = S.topics.filter(x => x.id !== r.v.id).concat([r.v]); closeModal(); render(); }
+    } else {
+      const r = await call('saveTopics', [S.token, base, ids], 'Тема назначена: ' + ids.length + ' ученикам');
+      if(r.ok){ S.topics = S.topics.concat(r.v); closeModal(); render(); }
+    }
     break;
   }
   case 'topic-next': {
@@ -1364,16 +1610,37 @@ async function putMark(ds, uid, status, hours, note){
 
 document.addEventListener('click', ev => {
   const tabEl = ev.target.closest('[data-tab]');
-  if(tabEl){ S.tab = tabEl.dataset.tab; S.openStudent = ''; render(); return; }
+  if(tabEl){ S.tab = tabEl.dataset.tab; S.openStudent = ''; S.q = ''; render(); return; }
   const el = ev.target.closest('[data-act]');
   if(el) act(el.dataset.act, el, ev);
+});
+
+let qTimer = null;
+document.addEventListener('input', ev => {
+  const el = ev.target.closest('[data-act="q"]');
+  if(!el) return;
+  S.q = el.value;
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => {
+    render();
+    const n = document.querySelector('[data-act="q"]');
+    if(n){ n.focus(); n.setSelectionRange(n.value.length, n.value.length); }
+  }, 300);
 });
 
 document.addEventListener('change', ev => {
   const el = ev.target.closest('[data-act]');
   if(!el) return;
   const a = el.dataset.act;
-  if(a === 'day-set'){ S.day = el.value; render(); }
+  if(a === 'f-team'){ S.fTeam = el.value; render(); }
+  else if(a === 'f-cat'){ S.fCat = el.value; render(); }
+  else if(a === 'tp-target'){
+    const mode = el.value;
+    document.getElementById('tgOne').classList.toggle('hide', mode !== 'one');
+    document.getElementById('tgTeam').classList.toggle('hide', mode !== 'team');
+    document.getElementById('tgRole').classList.toggle('hide', mode !== 'role');
+  }
+  else if(a === 'day-set'){ S.day = el.value; render(); }
   else if(a === 'mon-set'){ S.month = el.value; render(); }
   else if(a === 'from'){ S.from = el.value; render(); }
   else if(a === 'to'){ S.to = el.value; render(); }

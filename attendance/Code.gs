@@ -17,7 +17,8 @@ var MAX_FAILS = 7;                    // неверных PIN подряд до 
 var LOCK_MINUTES = 15;                // на сколько блокируется вход
 
 var SHEETS = {
-  people:   ['id','role','name','pinHash','salt','active','since','createdAt','failCount','lockUntil','note'],
+  people:   ['id','role','name','pinHash','salt','active','since','createdAt','failCount','lockUntil','note',
+             'cls','team','category','teamRole'],
   marks:    ['id','date','studentId','status','hours','note','updatedAt','updatedBy'],
   settings: ['key','value'],
   sessions: ['token','personId','createdAt','expiresAt'],
@@ -32,6 +33,8 @@ var STATUSES = ['p','l','e','a'];     // был / опоздал / уважит�
 function book_() { return SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActive(); }
 function tz_() { return book_().getSpreadsheetTimeZone() || 'Etc/GMT'; }
 
+var HDR_CHECKED = {};
+
 function sheet_(name) {
   var bk = book_();
   var sh = bk.getSheetByName(name);
@@ -41,6 +44,15 @@ function sheet_(name) {
     sh.setFrozenRows(1);
     if (name === 'marks') sh.getRange('B:B').setNumberFormat('@');
     if (name === 'people') sh.getRange('G:H').setNumberFormat('@');
+    HDR_CHECKED[name] = true;
+    return sh;
+  }
+  // лист создан более старой версией скрипта — дописываем недостающие колонки
+  if (!HDR_CHECKED[name]) {
+    HDR_CHECKED[name] = true;
+    if (sh.getLastColumn() < SHEETS[name].length) {
+      sh.getRange(1, 1, 1, SHEETS[name].length).setValues([SHEETS[name]]);
+    }
   }
   return sh;
 }
@@ -117,7 +129,9 @@ function defaultSettings_() {
     schedule: [0, 1, 1, 1, 1, 1, 4],
     yearStart: start,
     yearEnd: end,
-    holidays: []                       // [{date:'2026-01-01', note:'Каникулы'}]
+    holidays: [],                      // [{date:'2026-01-01', note:'Каникулы'}]
+    competitions: [],                  // [{title:'WRO', when:'April - May', term:'4 term', status:''}]
+    plan: []                           // [{month:'SEPTEMBER', week:'I', n:'1', role:'Builder', task:'…'}]
   };
 }
 
@@ -127,7 +141,7 @@ function readSettings_() {
     var k = String(r.key);
     if (!(k in s)) return;
     var v = r.value;
-    if (k === 'schedule' || k === 'holidays') {
+    if (k === 'schedule' || k === 'holidays' || k === 'competitions' || k === 'plan') {
       try { v = JSON.parse(v); } catch (e) { return; }
     } else { v = dstr_(v); }
     s[k] = v;
@@ -135,6 +149,8 @@ function readSettings_() {
   if (!Array.isArray(s.schedule) || s.schedule.length !== 7) s.schedule = defaultSettings_().schedule;
   s.schedule = s.schedule.map(function (h) { return Math.max(0, num_(h, 0)); });
   if (!Array.isArray(s.holidays)) s.holidays = [];
+  if (!Array.isArray(s.competitions)) s.competitions = [];
+  if (!Array.isArray(s.plan)) s.plan = [];
   return s;
 }
 
@@ -152,7 +168,9 @@ function personPub_(p) {
   return {
     id: String(p.id), role: String(p.role), name: String(p.name),
     active: String(p.active) !== '0' && p.active !== false,
-    since: dstr_(p.since), createdAt: dstr_(p.createdAt), note: String(p.note || '')
+    since: dstr_(p.since), createdAt: dstr_(p.createdAt), note: String(p.note || ''),
+    cls: String(p.cls || ''), team: String(p.team || ''),
+    category: String(p.category || ''), teamRole: String(p.teamRole || '')
   };
 }
 
@@ -162,16 +180,19 @@ function findPerson_(id) {
   return hit;
 }
 
-function createPerson_(role, name, pin, since) {
+function createPerson_(role, name, pin, since, extra) {
   name = String(name || '').trim();
   if (!name) throw new Error('Не указано имя.');
+  extra = extra || {};
   var salt = rndStr_(12);
   var row = {
     id: newId_(role === 'student' ? 's' : 'u'),
     role: role, name: name,
     pinHash: hashPin_(pin, salt), salt: salt,
-    active: 1, since: since || today_(), createdAt: today_(),
-    failCount: 0, lockUntil: '', note: ''
+    active: extra.active === 0 ? 0 : 1, since: since || today_(), createdAt: today_(),
+    failCount: 0, lockUntil: '', note: String(extra.note || ''),
+    cls: String(extra.cls || ''), team: String(extra.team || ''),
+    category: String(extra.category || ''), teamRole: String(extra.teamRole || '')
   };
   append_('people', row);
   return row;
@@ -369,21 +390,21 @@ API.setMarks = function (token, date, items) {
 
 /* ---- ученики и сотрудники ---- */
 
-API.addStudent = function (token, name, since) {
+API.addStudent = function (token, name, since, extra) {
   var p = auth_(token); requireStaff_(p);
   var pin = genPin_(4);
-  var row = createPerson_('student', name, pin, dstr_(since) || today_());
+  var row = createPerson_('student', name, pin, dstr_(since) || today_(), extra);
   return { person: personPub_(row), pin: pin };
 };
 
-API.addStudents = function (token, names, since) {
+API.addStudents = function (token, names, since, extra) {
   var p = auth_(token); requireStaff_(p);
   var out = [];
   (names || []).forEach(function (n) {
     n = String(n || '').trim();
     if (!n) return;
     var pin = genPin_(4);
-    out.push({ person: personPub_(createPerson_('student', n, pin, dstr_(since) || today_())), pin: pin });
+    out.push({ person: personPub_(createPerson_('student', n, pin, dstr_(since) || today_(), extra)), pin: pin });
   });
   return out;
 };
@@ -408,6 +429,9 @@ API.savePerson = function (token, id, patch) {
   }
   if (patch.since !== undefined) out.since = dstr_(patch.since);
   if (patch.note !== undefined) out.note = String(patch.note);
+  ['cls', 'team', 'category', 'teamRole'].forEach(function (k) {
+    if (patch[k] !== undefined) out[k] = String(patch[k]).trim();
+  });
   if (patch.active !== undefined || patch.role !== undefined) {
     requireAdmin_(p);
     if (patch.active !== undefined) out.active = patch.active ? 1 : 0;
@@ -522,6 +546,20 @@ API.saveTopic = function (token, topic) {
            status: patch.status, due: patch.due, note: patch.note };
 };
 
+/** Одна и та же тема сразу нескольким ученикам (команде, роли, всем). */
+API.saveTopics = function (token, topic, studentIds) {
+  var p = auth_(token); requireStaff_(p);
+  var out = [];
+  (studentIds || []).forEach(function (u) {
+    var one = {};
+    for (var k in topic) if (topic.hasOwnProperty(k)) one[k] = topic[k];
+    one.id = '';
+    one.u = u;
+    out.push(API.saveTopic(token, one));
+  });
+  return out;
+};
+
 /** Ученик может сам отметить тему изученной — остальное меняют только педагоги. */
 API.setTopicStatus = function (token, id, status) {
   var p = auth_(token);
@@ -554,6 +592,18 @@ API.saveSettings = function (token, patch) {
     var sc = patch.schedule;
     if (!Array.isArray(sc) || sc.length !== 7) throw new Error('Расписание — это 7 чисел (Вс…Сб).');
     writeSetting_('schedule', sc.map(function (h) { return Math.max(0, num_(h, 0)); }));
+  }
+  if (patch.competitions !== undefined) {
+    writeSetting_('competitions', (patch.competitions || []).map(function (c) {
+      return { title: String(c.title || ''), when: String(c.when || ''),
+               term: String(c.term || ''), status: String(c.status || '') };
+    }).filter(function (c) { return c.title; }));
+  }
+  if (patch.plan !== undefined) {
+    writeSetting_('plan', (patch.plan || []).map(function (x) {
+      return { month: String(x.month || ''), week: String(x.week || ''),
+               n: String(x.n || ''), role: String(x.role || ''), task: String(x.task || '') };
+    }).filter(function (x) { return x.task; }));
   }
   if (patch.holidays !== undefined) {
     var hs = (patch.holidays || []).filter(function (h) { return h && dstr_(h.date); })
@@ -602,6 +652,8 @@ function setup() {
   writeSetting_('yearStart', s.yearStart);
   writeSetting_('yearEnd', s.yearEnd);
   writeSetting_('holidays', s.holidays);
+  if (!rows_('settings').some(function (r) { return String(r.key) === 'competitions'; })) writeSetting_('competitions', s.competitions);
+  if (!rows_('settings').some(function (r) { return String(r.key) === 'plan'; })) writeSetting_('plan', s.plan);
 
   var admins = rows_('people').filter(function (p) { return String(p.role) === 'admin'; });
   var msg;
