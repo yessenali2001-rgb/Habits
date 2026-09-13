@@ -615,6 +615,14 @@ API.saveSettings = function (token, patch) {
 
 /* ================= точка входа ================= */
 
+/** Сообщение пользователю: в журнал и, если можно, окном. */
+var SILENT = false;
+function tell_(msg) {
+  Logger.log(msg);
+  if (!SILENT) { try { SpreadsheetApp.getUi().alert(msg); } catch (e) {} }
+  return msg;
+}
+
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
@@ -666,9 +674,7 @@ function setup() {
     msg = 'Готово!\n\nАдминистратор: ' + FIRST_ADMIN_NAME + '\nКод для входа: ' + pin +
           '\n\nЗапишите код — он больше нигде не показывается.';
   }
-  Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert(msg); } catch (err) {}
-  return msg;
+  return tell_(msg);
 }
 
 /** Сброс кода администратора, если он потерян. */
@@ -677,8 +683,5 @@ function resetAdminPin() {
   if (!admins.length) return setup();
   var pin = genPin_(6), salt = rndStr_(12);
   update_('people', admins[0]._row, { salt: salt, pinHash: hashPin_(pin, salt), failCount: 0, lockUntil: '', active: 1 });
-  var msg = 'Новый код для «' + admins[0].name + '»: ' + pin;
-  Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert(msg); } catch (err) {}
-  return msg;
+  return tell_('Новый код для «' + admins[0].name + '»: ' + pin);
 }
