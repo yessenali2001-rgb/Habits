@@ -431,7 +431,7 @@ const S = {
   code:null, token:null, name:'',
   habits:[], entries:[], sums:{},
   groups:[], shareFrom:'',
-  tab:'today', sel:null, day:null, weekOffset:0, rankMode:'plan',
+  tab:'today', sel:null, day:null, weekOffset:0, monthOffset:0, rankMode:'plan',
   adding:false, emoji:EMOJI[0], color:PALETTE[0]
 };
 let TODAY = fmt(new Date());
@@ -526,7 +526,8 @@ function streak(h, m) {
 
 const weekDaysAt = off => { const s = addDays(startOfWeek(new Date()), off*7); return rangeDays(s, addDays(s,6)); };
 const weekDays = () => weekDaysAt(0);
-const monthDays = () => { const t = new Date(); return rangeDays(new Date(t.getFullYear(),t.getMonth(),1), new Date(t.getFullYear(),t.getMonth()+1,0)); };
+const monthDaysAt = off => { const t = new Date(); const f = new Date(t.getFullYear(),t.getMonth()+off,1); return rangeDays(f, new Date(f.getFullYear(),f.getMonth()+1,0)); };
+const monthDays = () => monthDaysAt(0);
 const yearDays = () => { const y = new Date().getFullYear(); return rangeDays(new Date(y,0,1), new Date(y,11,31)); };
 
 function weekLabel(days) {
@@ -636,7 +637,7 @@ function render() {
   const v = $('view');
   if (S.tab === 'today') v.innerHTML = viewToday();
   if (S.tab === 'week') v.innerHTML = viewWeek(w);
-  if (S.tab === 'month') v.innerHTML = viewMonth(m);
+  if (S.tab === 'month') v.innerHTML = viewMonth();
   if (S.tab === 'year') v.innerHTML = viewYear(y);
   if (S.tab === 'rank') v.innerHTML = viewRank();
 }
@@ -780,14 +781,62 @@ function dayPanel(date) {
 }
 
 /* ---- месяц ---- */
-function viewMonth(m) {
-  if (!S.habits.length) return '<div class="empty">Сначала добавьте привычку на вкладке «Сегодня».</div>';
-  const t = new Date();
-  const first = new Date(t.getFullYear(), t.getMonth(), 1);
-  const days = monthDays();
-  const lead = (first.getDay()+6)%7;
+function monthFacts(days) {
+  const past = days.filter(d => d <= TODAY);
+  const infos = past.map(d => dayInfo(S.habits, S.sums, d));
+  const avg = infos.length ? Math.round(infos.reduce((s,i) => s+i.frac, 0)/infos.length*100) : 0;
+  const best = infos.length ? Math.round(Math.max.apply(null, infos.map(i => i.frac))*100) : 0;
+  const closed = closedDays(S.habits, S.sums, days);
+  const set = new Set(past);
+  const entries = S.entries.filter(e => set.has(e.d)).length;
+  return { avg:avg, best:best, closed:closed, entries:entries };
+}
 
-  let out = '<div class="panel"><div class="panel-top"><span>'+MONTHS[t.getMonth()]+'</span><b>'+m.pct+'%</b></div>'+bar(m.pct)+'</div>';
+function monthCompare() {
+  const n = 6, rows = [];
+  for (let i = n-1; i >= 0; i--) {
+    const off = S.monthOffset - i;
+    const days = monthDaysAt(off).filter(d => d <= TODAY);
+    if (!days.length) continue;
+    rows.push({ off:off, label: MON_SHORT[parseD(monthDaysAt(off)[0]).getMonth()], pct: stats(S.habits,S.sums,days).pct });
+  }
+  if (rows.length < 2) return '';
+  const max = Math.max(100, Math.max.apply(null, rows.map(r => r.pct)));
+  return '<div class="panel" style="margin-top:16px"><div class="panel-top"><span>Сравнение по месяцам</span></div>'+
+    '<div style="display:flex;gap:8px;align-items:flex-end;height:96px;margin-top:8px">'+
+    rows.map(r => {
+      const on = r.off === S.monthOffset;
+      const h = Math.max(4, Math.round(r.pct/max*74));
+      return '<button data-monthnav="'+r.off+'" style="flex:1;display:flex;flex-direction:column;align-items:center;'+
+        'gap:6px;background:none;border:0;padding:0">'+
+        '<span style="font-size:12px;font-variant-numeric:tabular-nums;color:'+(on?'var(--accent)':'var(--muted)')+'">'+r.pct+'%</span>'+
+        '<i style="display:block;width:100%;height:'+h+'px;border-radius:5px;background:'+(on?'var(--accent)':'var(--line2)')+'"></i>'+
+        '<span style="font-size:11px;color:'+(on?'var(--tx)':'var(--muted)')+'">'+r.label+'</span></button>';
+    }).join('')+'</div></div>';
+}
+
+function viewMonth() {
+  if (!S.habits.length) return '<div class="empty">Сначала добавьте привычку на вкладке «Сегодня».</div>';
+  const days = monthDaysAt(S.monthOffset);
+  const first = parseD(days[0]);
+  const lead = (first.getDay()+6)%7;
+  const thisYear = new Date().getFullYear();
+  const m = stats(S.habits, S.sums, days);
+  const f = monthFacts(days);
+
+  let out = '<div class="gnav">'+
+    '<button class="btn tiny" data-monthnav="'+(S.monthOffset-1)+'">←</button>'+
+    '<b>'+MONTHS[first.getMonth()]+(first.getFullYear()!==thisYear?' '+first.getFullYear():'')+'</b>'+
+    '<button class="btn tiny" data-monthnav="'+(S.monthOffset+1)+'"'+(S.monthOffset>=0?' disabled':'')+'>→</button>'+
+    (S.monthOffset!==0?'<button class="btn tiny" data-monthnav="0" style="margin-left:auto">Текущий месяц</button>':'')+
+    '</div>';
+
+  out += '<div class="panel"><div class="panel-top"><span>'+MONTHS[first.getMonth()]+'</span><b>'+m.pct+'%</b></div>'+bar(m.pct)+
+    '<div class="facts"><div><b>'+f.avg+'%</b><span>средний день</span></div>'+
+    '<div><b>'+f.best+'%</b><span>лучший день</span></div>'+
+    '<div><b>'+f.closed+'</b><span>дней план закрыт</span></div>'+
+    '<div><b>'+f.entries+'</b><span>записей за месяц</span></div></div></div>';
+
   out += '<div class="cal">' + WD.map(x => '<div class="wd">'+x+'</div>').join('');
   for (let i=0;i<lead;i++) out += '<div></div>';
   days.forEach(d => {
@@ -805,6 +854,8 @@ function viewMonth(m) {
       '<span class="v"><b>'+nf(tt.got)+'</b> из '+nf(tt.goal)+' '+esc(h.unit)+'</span></div>'+bar(tt.pct,h.color)+'</div>';
   });
   out += '</div></div>';
+
+  out += monthCompare();
   if (S.sel) out += dayPanel(S.sel);
   return out;
 }
@@ -994,7 +1045,7 @@ async function pushEntry(habitId, date, amount, btn) {
 }
 
 document.addEventListener('click', async e => {
-  const el = e.target.closest('[data-tab],[data-act],[data-emoji],[data-color],[data-day],[data-pick],[data-add],[data-quick],[data-delentry],[data-delhabit],[data-week],[data-leave],[data-mode]');
+  const el = e.target.closest('[data-tab],[data-act],[data-emoji],[data-color],[data-day],[data-pick],[data-add],[data-quick],[data-delentry],[data-delhabit],[data-week],[data-monthnav],[data-leave],[data-mode]');
   if (!el) return;
 
   if (el.dataset.tab) { S.tab = el.dataset.tab; S.sel = null; S.day = null; S.adding = false; render(); return; }
@@ -1004,6 +1055,7 @@ document.addEventListener('click', async e => {
   if (el.dataset.color) { S.color = el.dataset.color; render(); return; }
   if (el.dataset.day) { S.sel = S.sel === el.dataset.day ? null : el.dataset.day; render(); return; }
   if (el.dataset.week) { S.weekOffset = Number(el.dataset.week); render(); return; }
+  if (el.dataset.monthnav) { S.monthOffset = Number(el.dataset.monthnav); S.sel = null; render(); return; }
 
   const act = el.dataset.act;
   if (act === 'open-add') { S.adding = true; render(); setTimeout(() => $('newName') && $('newName').focus(), 0); return; }
