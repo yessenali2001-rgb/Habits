@@ -432,7 +432,8 @@ const S = {
   habits:[], entries:[], sums:{},
   groups:[], shareFrom:'',
   tab:'today', sel:null, day:null, weekOffset:0, monthOffset:0, rankMode:'plan',
-  adding:false, emoji:EMOJI[0], color:PALETTE[0]
+  adding:false, emoji:EMOJI[0], color:PALETTE[0],
+  editing:null, editEmoji:EMOJI[0], editColor:PALETTE[0]
 };
 let TODAY = fmt(new Date());
 
@@ -676,7 +677,9 @@ function habitCard(h, date) {
     '<input class="inp sm" type="number" inputmode="decimal" min="0" step="any" id="a_'+h.id+'" placeholder="сколько">'+
     '<button class="chip" data-add="'+h.id+'" data-date="'+date+'">Записать</button>'+
     steps.map(n => '<button class="chip" data-quick="'+h.id+'" data-amount="'+n+'" data-date="'+date+'">+'+n+'</button>').join('')+
-    '<button class="del" data-delhabit="'+h.id+'" title="Удалить привычку" style="margin-left:auto">×</button></div>';
+    '<span style="margin-left:auto;display:flex;gap:2px">'+
+    '<button class="del" data-edithabit="'+h.id+'" title="Изменить привычку">✎</button>'+
+    '<button class="del" data-delhabit="'+h.id+'" title="Удалить привычку">×</button></span></div>';
 
   if (list.length) {
     out += '<div class="entries">' + list.map(e =>
@@ -686,7 +689,30 @@ function habitCard(h, date) {
   if (st > 0) out += '<p class="hstreak">'+(weekly
     ? 'План закрыт '+st+' нед. подряд'
     : 'Цель выполнена '+st+' дн. подряд')+'</p>';
+  if (S.editing === h.id) out += editPanel(h);
   return out + '</div>';
+}
+
+function editPanel(h) {
+  return '<div class="panel" style="margin-top:11px">'+
+    '<div class="field"><label for="en_'+h.id+'">Название</label>'+
+    '<input class="inp" id="en_'+h.id+'" value="'+esc(h.name)+'"></div>'+
+    '<div class="inline" style="margin-top:8px">'+
+    '<div style="flex:1"><label class="muted" style="display:block;margin:0 0 5px">Цель</label>'+
+    '<input class="inp" id="eg_'+h.id+'" type="number" min="1" step="any" value="'+h.goal+'"></div>'+
+    '<div style="flex:1"><label class="muted" style="display:block;margin:0 0 5px">Единица</label>'+
+    '<input class="inp" id="eu_'+h.id+'" value="'+esc(h.unit)+'"></div>'+
+    '<div style="flex:1"><label class="muted" style="display:block;margin:0 0 5px">Период</label>'+
+    '<select class="inp" id="ep_'+h.id+'">'+
+    '<option value="day"'+(h.period!=='week'?' selected':'')+'>в день</option>'+
+    '<option value="week"'+(h.period==='week'?' selected':'')+'>в неделю</option></select></div></div>'+
+    '<div class="pickers"><div class="picker">'+
+    EMOJI.map(e => '<button class="pick em'+(S.editEmoji===e?' on':'')+'" data-editemoji="'+e+'">'+e+'</button>').join('')+
+    '</div><div class="picker">'+
+    PALETTE.map(c => '<button class="pick dot'+(S.editColor===c?' on':'')+'" data-editcolor="'+c+'" style="background:'+c+'"></button>').join('')+
+    '</div></div><div class="inline">'+
+    '<button class="btn primary" data-act="save-edit" data-habit="'+h.id+'">Сохранить</button>'+
+    '<button class="btn" data-act="cancel-edit">Отмена</button></div></div>';
 }
 
 /* ---- сегодня ---- */
@@ -1045,14 +1071,37 @@ async function pushEntry(habitId, date, amount, btn) {
 }
 
 document.addEventListener('click', async e => {
-  const el = e.target.closest('[data-tab],[data-act],[data-emoji],[data-color],[data-day],[data-pick],[data-add],[data-quick],[data-delentry],[data-delhabit],[data-week],[data-monthnav],[data-leave],[data-mode]');
+  const el = e.target.closest('[data-tab],[data-act],[data-emoji],[data-color],[data-day],[data-pick],[data-add],[data-quick],[data-delentry],[data-delhabit],[data-edithabit],[data-editemoji],[data-editcolor],[data-week],[data-monthnav],[data-leave],[data-mode]');
   if (!el) return;
 
-  if (el.dataset.tab) { S.tab = el.dataset.tab; S.sel = null; S.day = null; S.adding = false; render(); return; }
+  if (el.dataset.tab) { S.tab = el.dataset.tab; S.sel = null; S.day = null; S.adding = false; S.editing = null; render(); return; }
   if (el.dataset.pick) { S.day = el.dataset.pick; render(); return; }
   if (el.dataset.mode) { S.rankMode = el.dataset.mode; render(); return; }
-  if (el.dataset.emoji) { S.emoji = el.dataset.emoji; render(); return; }
-  if (el.dataset.color) { S.color = el.dataset.color; render(); return; }
+  if (el.dataset.emoji) {
+    S.emoji = el.dataset.emoji;
+    document.querySelectorAll('[data-emoji]').forEach(b => b.classList.toggle('on', b.dataset.emoji === S.emoji));
+    return;
+  }
+  if (el.dataset.color) {
+    S.color = el.dataset.color;
+    document.querySelectorAll('[data-color]').forEach(b => b.classList.toggle('on', b.dataset.color === S.color));
+    return;
+  }
+  if (el.dataset.editemoji) {
+    S.editEmoji = el.dataset.editemoji;
+    document.querySelectorAll('[data-editemoji]').forEach(b => b.classList.toggle('on', b.dataset.editemoji === S.editEmoji));
+    return;
+  }
+  if (el.dataset.editcolor) {
+    S.editColor = el.dataset.editcolor;
+    document.querySelectorAll('[data-editcolor]').forEach(b => b.classList.toggle('on', b.dataset.editcolor === S.editColor));
+    return;
+  }
+  if (el.dataset.edithabit) {
+    const h = S.habits.find(x => x.id === el.dataset.edithabit);
+    S.editing = h.id; S.editEmoji = h.emoji; S.editColor = h.color; render();
+    return;
+  }
   if (el.dataset.day) { S.sel = S.sel === el.dataset.day ? null : el.dataset.day; render(); return; }
   if (el.dataset.week) { S.weekOffset = Number(el.dataset.week); render(); return; }
   if (el.dataset.monthnav) { S.monthOffset = Number(el.dataset.monthnav); S.sel = null; render(); return; }
@@ -1060,6 +1109,7 @@ document.addEventListener('click', async e => {
   const act = el.dataset.act;
   if (act === 'open-add') { S.adding = true; render(); setTimeout(() => $('newName') && $('newName').focus(), 0); return; }
   if (act === 'cancel-add') { S.adding = false; render(); return; }
+  if (act === 'cancel-edit') { S.editing = null; render(); return; }
   if (act === 'close-day') { S.sel = null; render(); return; }
 
   if (el.dataset.quick) { await pushEntry(el.dataset.quick, el.dataset.date, Number(el.dataset.amount), el); return; }
@@ -1103,6 +1153,24 @@ document.addEventListener('click', async e => {
     try {
       const h = await api('addHabit', [S.code, S.token, name, S.emoji, S.color, unit, goal, period]);
       S.habits.push(h); S.adding = false; S.emoji = EMOJI[0]; S.color = PALETTE[0]; render();
+    } catch (err) { el.disabled = false; say(err.message, 'err'); }
+    return;
+  }
+
+  if (act === 'save-edit') {
+    const id = el.dataset.habit;
+    const name = $('en_'+id).value.trim();
+    const goal = Number($('eg_'+id).value) || 1;
+    const unit = $('eu_'+id).value.trim() || 'раз';
+    const period = $('ep_'+id).value;
+    if (!name) { say('Впишите название привычки.', 'err'); return; }
+    el.disabled = true;
+    try {
+      const h = await api('editHabit', [S.code, S.token, id, name, S.editEmoji, S.editColor, unit, goal, period]);
+      const i = S.habits.findIndex(x => x.id === id);
+      if (i >= 0) S.habits[i] = h;
+      S.editing = null; render();
+      say('Привычка обновлена.', 'ok');
     } catch (err) { el.disabled = false; say(err.message, 'err'); }
     return;
   }
@@ -1179,6 +1247,10 @@ document.addEventListener('keydown', e => {
   }
   if (t.id === 'newName' || t.id === 'newGoal' || t.id === 'newUnit') {
     const btn = document.querySelector('[data-act="save-habit"]');
+    if (btn) btn.click();
+  }
+  if (t.id.indexOf('en_') === 0 || t.id.indexOf('eg_') === 0 || t.id.indexOf('eu_') === 0) {
+    const btn = document.querySelector('[data-act="save-edit"]');
     if (btn) btn.click();
   }
   if (t.id === 'joinCode') document.querySelector('[data-act="join-group"]').click();

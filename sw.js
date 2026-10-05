@@ -2,7 +2,7 @@
    Кэширует оболочку приложения, чтобы оно открывалось без сети.
    Запросы к Apps Script никогда не кэшируются: данные должны быть свежими. */
 
-const CACHE = 'habits-v6';
+const CACHE = 'habits-v7';
 const ASSETS = [
   './',
   './index.html',
