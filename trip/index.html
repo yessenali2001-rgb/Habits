@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16131f">
+<title>Планировщик поездок</title>
+<link rel="icon" href="../icon-192.png">
+<link rel="apple-touch-icon" href="../icon-192.png">
+<style>
+:root {
+  --ink:#16131f; --panel:#201c2c; --line:#302b41; --line2:#453e5c; --sunk:#16131f;
+  --tx:#ece9f3; --muted:#9990ad; --accent:#ffb457; --onaccent:#211a10; --bad:#ff8fa3;
+}
+body.light {
+  --ink:#ffffff; --panel:#f7f6f9; --line:#e3e0e9; --line2:#c9c4d4; --sunk:#ffffff;
+  --tx:#1b1725; --muted:#6c6580; --accent:#e0912f; --onaccent:#2a1c06; --bad:#d6405b;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--ink); color:var(--tx);
+  font-family:"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size:15px; line-height:1.5; }
+.wrap { max-width:780px; margin:0 auto; padding:20px 20px 60px; }
+button { font:inherit; cursor:pointer; }
+a { color:var(--accent); }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.hide { display:none !important; }
+
+.topbar { display:flex; align-items:center; gap:12px; margin-bottom:18px; min-height:34px; }
+.topbar .back { font-size:14px; text-decoration:none; }
+.topbar .back:hover { text-decoration:underline; }
+.topbar .spacer { margin-left:auto; }
+
+.head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+.head h1 { margin:0; font-size:25px; font-weight:650; letter-spacing:-.02em; }
+.sub { margin:2px 0 0; color:var(--muted); font-size:14px; }
+.lead { color:var(--muted); }
+
+.msg { padding:9px 12px; border-radius:10px; font-size:14px; margin-bottom:14px; }
+.msg.err { background:rgba(255,143,163,.12); border:1px solid rgba(255,143,163,.4); color:var(--bad); }
+.msg.ok { background:rgba(255,180,87,.12); border:1px solid rgba(255,180,87,.35); color:var(--accent); }
+
+.btn { display:inline-block; background:var(--panel); border:1px solid var(--line); color:var(--tx);
+  padding:10px 16px; border-radius:10px; text-decoration:none; text-align:center; }
+.btn:hover { border-color:var(--line2); }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--onaccent); font-weight:600; }
+.btn.primary:hover { filter:brightness(1.07); }
+.btn.tiny { padding:5px 10px; font-size:13px; border-radius:8px; }
+.btn.danger { color:var(--bad); }
+.btn:disabled { opacity:.55; cursor:default; }
+.inp { width:100%; background:var(--sunk); border:1px solid var(--line); color:var(--tx);
+  padding:11px 13px; border-radius:10px; font:inherit; }
+.inp.sm { padding:8px 11px; }
+.inp::placeholder { color:#6e6684; }
+textarea.inp { resize:vertical; }
+.field { display:block; margin-bottom:10px; }
+.field > span { display:block; font-size:13px; color:var(--muted); margin-bottom:5px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.row .inp { flex:1; min-width:130px; width:auto; }
+
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:14px;
+  padding:16px; margin-bottom:16px; }
+.panel h2 { margin:0 0 12px; font-size:17px; font-weight:600; }
+.muted { color:var(--muted); font-size:13px; margin:10px 0 0; }
+.empty { color:var(--muted); text-align:center; padding:30px 16px;
+  border:1px dashed var(--line); border-radius:14px; margin-bottom:16px; }
+
+.tcard { display:block; text-decoration:none; color:inherit; background:var(--panel);
+  border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:10px; }
+.tcard:hover { border-color:var(--line2); }
+.tcard b { display:block; font-size:17px; font-weight:600; }
+.tcard span { color:var(--muted); font-size:13.5px; }
+
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.chip { display:inline-flex; align-items:center; gap:7px; background:var(--sunk);
+  border:1px solid var(--line); border-radius:99px; padding:4px 6px 4px 12px; font-size:14px; }
+.chip.ro { padding:4px 12px; }
+.chip small { color:var(--muted); font-size:12px; }
+.chip button { background:none; border:0; color:var(--muted); font-size:17px; line-height:1; padding:0 4px; }
+.chip button:hover { color:var(--bad); }
+
+.day { padding:14px 0; border-top:1px solid var(--line); }
+.day:first-of-type { border-top:0; padding-top:0; }
+.dayh { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+.dayh h3 { margin:0; font-size:16px; font-weight:600; }
+.tag { font-size:12px; color:var(--muted); background:var(--sunk); border:1px solid var(--line);
+  border-radius:99px; padding:1px 9px; }
+.tag.warn { color:var(--bad); border-color:rgba(255,143,163,.4); }
+.free { color:var(--muted); font-size:14px; margin:4px 0 8px; }
+.item { display:flex; gap:12px; padding:9px 0; }
+.item + .item { border-top:1px dashed var(--line); }
+.when { flex:0 0 78px; color:var(--muted); font-size:14px; font-variant-numeric:tabular-nums; padding-top:1px; }
+.ibody { flex:1; min-width:0; }
+.ititle { font-weight:550; overflow-wrap:anywhere; }
+.iplace, .inote { font-size:14px; overflow-wrap:anywhere; }
+.iplace a { text-decoration:none; }
+.iplace a:hover { text-decoration:underline; }
+.inote { color:var(--muted); white-space:pre-wrap; }
+.iacts { display:flex; gap:6px; flex-wrap:wrap; margin-top:7px; }
+.iform { background:var(--sunk); border:1px solid var(--line2); border-radius:12px; padding:12px; margin:8px 0; }
+.iform .grid2 { margin-bottom:10px; }
+.iform .row { margin-top:4px; }
+
+.banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between; }
+.banner b { font-size:15px; }
+.sep { border:0; border-top:1px solid var(--line); margin:18px 0; }
+
+@media (max-width:560px) {
+  .wrap { padding:14px 12px 60px; }
+  .head h1 { font-size:21px; }
+  .inp, .inp.sm { font-size:16px; padding:12px 13px; }   /* 16px не даёт iOS зумить */
+  .btn { padding:12px 16px; }
+  .btn.tiny { padding:7px 11px; }
+  .panel { padding:13px; border-radius:13px; }
+  .when { flex-basis:62px; font-size:13px; }
+  .grid2 { grid-template-columns:1fr; }
+  .iform .grid2.times { grid-template-columns:1fr 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <a class="back hide" id="back" href="#">← Мои поездки</a>
+    <button class="btn tiny spacer" id="theme">Светлая тема</button>
+  </div>
+  <div id="msg" role="status" aria-live="polite"></div>
+  <div id="view"></div>
+  <noscript><p class="lead">Для работы планировщика нужен JavaScript.</p></noscript>
+</div>
+
+<script>
+'use strict';
+/* ================= константы и утилиты ================= */
+const STORE = 'tripPlans.v1';
+const MAX_DAYS = 60, MAX_PEOPLE = 30, MAX_ITEMS = 400, MAX_INFLATED = 400000;
+const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+const goodId = x => typeof x === 'string' && /^[\w-]{1,40}$/.test(x);
+
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, '0');
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
+/* Все данные (в том числе из чужих ссылок) попадают на страницу только через
+   textContent / setAttribute, поэтому HTML из них никогда не разбирается. */
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  let value;
+  for (const k in (attrs || {})) {
+    const v = attrs[k];
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'value') value = v;
+    else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  append(el, kids);
+  if (value !== undefined) el.value = value;
+  return el;
+}
+function append(el, kids) {
+  for (const k of kids) {
+    if (k == null || k === false) continue;
+    if (Array.isArray(k)) append(el, k);
+    else el.append(k.nodeType ? k : document.createTextNode(String(k)));
+  }
+}
+
+/* replaceChildren сам не раскладывает массивы и превращает false в текст «false» */
+function show(...kids) {
+  const view = $('#view');
+  view.replaceChildren();
+  append(view, kids);
+}
+
+let toastTimer;
+function toast(text, bad) {
+  $('#msg').replaceChildren(h('div', { class: 'msg ' + (bad ? 'err' : 'ok') }, text));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('#msg').replaceChildren(), 3500);
+}
+
+/* ================= даты (строки YYYY-MM-DD, без часовых поясов) ================= */
+function parseISO(s) { const p = s.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])); }
+function toISO(d) { return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
+function validDate(s) { return typeof s === 'string' && isoRe.test(s) && toISO(parseISO(s)) === s; }
+function addDays(s, n) { const d = parseISO(s); d.setUTCDate(d.getUTCDate() + n); return toISO(d); }
+function diffDays(a, b) { return Math.round((parseISO(b) - parseISO(a)) / 864e5); }
+function todayISO() { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+const dayFmt = new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' });
+const rangeFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const fmtDay = s => cap(dayFmt.format(parseISO(s)));
+const fmtRange = (a, b) => a === b ? rangeFmt.format(parseISO(a))
+  : rangeFmt.format(parseISO(a)) + ' – ' + rangeFmt.format(parseISO(b));
+const compact = s => s.replace(/-/g, '');
+
+const mins = t => +t.slice(0, 2) * 60 + +t.slice(3);
+function stamp(date, m) {                       // m может перевалить за сутки
+  let d = date;
+  while (m >= 1440) { m -= 1440; d = addDays(d, 1); }
+  return compact(d) + 'T' + pad(Math.floor(m / 60)) + pad(m % 60) + '00';
+}
+function itemSpan(it) {                         // без конца — час
+  const s = mins(it.time);
+  const e = it.end && mins(it.end) > s ? mins(it.end) : s + 60;
+  return [stamp(it.date, s), stamp(it.date, e)];
+}
+
+/* ================= модель и хранилище ================= */
+const state = { trips: [] };
+
+/* Единая проверка: и для сохранённых данных, и для чужих ссылок. */
+function normTrip(o) {
+  if (!o || typeof o !== 'object') return null;
+  if (!validDate(o.start) || !validDate(o.end) || o.end < o.start || diffDays(o.start, o.end) >= MAX_DAYS) return null;
+  const s = (x, n) => typeof x === 'string' ? x.slice(0, n) : '';
+  const t = {
+    id: goodId(o.id) ? o.id : uid(),
+    title: s(o.title, 120).trim() || 'Поездка',
+    dest: s(o.dest, 120).trim(),
+    start: o.start, end: o.end, people: [], items: [],
+    updated: +o.updated || Date.now()
+  };
+  (Array.isArray(o.people) ? o.people : []).slice(0, MAX_PEOPLE).forEach(p => {
+    if (!p || typeof p !== 'object') return;
+    const email = typeof p.email === 'string' && emailRe.test(p.email) && p.email.length <= 120 ? p.email : '';
+    const name = s(p.name, 60).trim();
+    if (name || email) t.people.push({ name: name || email.split('@')[0], email });
+  });
+  (Array.isArray(o.items) ? o.items : []).slice(0, MAX_ITEMS).forEach(i => {
+    if (!i || typeof i !== 'object' || !validDate(i.date)) return;
+    const title = s(i.title, 120).trim();
+    if (!title) return;
+    const time = timeRe.test(i.time) ? i.time : '';
+    t.items.push({
+      id: goodId(i.id) ? i.id : uid(), date: i.date, time,
+      end: time && timeRe.test(i.end) ? i.end : '',
+      title, place: s(i.place, 160).trim(), note: s(i.note, 600).trim()
+    });
+  });
+  return t;
+}
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(STORE));
+    if (d && Array.isArray(d.trips)) state.trips = d.trips.map(normTrip).filter(Boolean);
+  } catch (e) {}
+}
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify(state)); }
+  catch (e) { toast('Не удалось сохранить: память браузера недоступна или переполнена', true); }
+}
+
+function tripDays(t) {
+  const set = new Set();
+  const n = Math.min(diffDays(t.start, t.end), MAX_DAYS - 1);
+  for (let i = 0; i <= n; i++) set.add(addDays(t.start, i));
+  t.items.forEach(i => set.add(i.date));       // пункты вне дат не теряются
+  return [...set].sort();
+}
+const inRange = (t, d) => d >= t.start && d <= t.end;
+function dayItems(t, d) {                       // «весь день» сверху, дальше по времени
+  return t.items.filter(i => i.date === d).map((i, n) => [i, n])
+    .sort((a, b) => a[0].time.localeCompare(b[0].time) || a[1] - b[1]).map(x => x[0]);
+}
+const guestsOf = t => t.people.map(p => p.email).filter(Boolean);
+const mapsUrl = (t, place) => 'https://www.google.com/maps/search/?api=1&query=' +
+  encodeURIComponent(t.dest && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
+
+function summary(t) {
+  const out = [];
+  if (t.people.length) out.push('Едут: ' + t.people.map(p => p.name).join(', '));
+  tripDays(t).forEach(d => {
+    const its = dayItems(t, d);
+    if (!its.length) return;
+    out.push('', fmtDay(d));
+    its.forEach(i => out.push((i.time ? i.time + ' ' : '') + i.title + (i.place ? ' — ' + i.place : '')));
+  });
+  return out.join('\n');
+}
+
+/* ================= календарь ================= */
+function gcal(o) {
+  const q = new URLSearchParams({ action: 'TEMPLATE', text: o.title, dates: o.a + '/' + o.b });
+  if (o.details) q.set('details', o.details.slice(0, 1800));
+  if (o.place) q.set('location', o.place);
+  if (o.guests && o.guests.length) q.set('add', o.guests.join(','));
+  return 'https://calendar.google.com/calendar/render?' + q;
+}
+const tripGcal = (t, guests) => gcal({ title: t.title, a: compact(t.start), b: compact(addDays(t.end, 1)),
+  details: summary(t), place: t.dest, guests });
+function itemGcal(t, it, guests) {
+  let a, b;
+  if (it.time) [a, b] = itemSpan(it);
+  else { a = compact(it.date); b = compact(addDays(it.date, 1)); }
+  return gcal({ title: it.title, a, b, details: it.note, place: it.place, guests });
+}
+
+const icsEsc = s => String(s).replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+function fold(line) {                           // строки iCalendar — не длиннее 75 байт
+  const enc = new TextEncoder();
+  let out = '', cur = '', bytes = 0, limit = 75;
+  for (const ch of line) {
+    const b = enc.encode(ch).length;
+    if (bytes + b > limit) { out += cur + '\r\n '; cur = ''; bytes = 0; limit = 74; }
+    cur += ch; bytes += b;
+  }
+  return out + cur;
+}
+function buildICS(t) {
+  const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Habits//Trips//RU', 'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH', 'X-WR-CALNAME:' + icsEsc(t.title)];
+  const ev = (key, fields) => L.push('BEGIN:VEVENT', 'UID:' + t.id + '-' + key + '@habits-trips',
+    'DTSTAMP:' + now, ...fields, 'END:VEVENT');
+  ev('trip', ['DTSTART;VALUE=DATE:' + compact(t.start), 'DTEND;VALUE=DATE:' + compact(addDays(t.end, 1)),
+    'SUMMARY:' + icsEsc('✈ ' + t.title), t.dest && 'LOCATION:' + icsEsc(t.dest),
+    'DESCRIPTION:' + icsEsc(summary(t)), 'TRANSP:TRANSPARENT'].filter(Boolean));
+  t.items.forEach(it => {
+    const when = it.time
+      ? (s => ['DTSTART:' + s[0], 'DTEND:' + s[1]])(itemSpan(it))
+      : ['DTSTART;VALUE=DATE:' + compact(it.date), 'DTEND;VALUE=DATE:' + compact(addDays(it.date, 1))];
+    ev(it.id, [...when, 'SUMMARY:' + icsEsc(it.title), it.place && 'LOCATION:' + icsEsc(it.place),
+      it.note && 'DESCRIPTION:' + icsEsc(it.note)].filter(Boolean));
+  });
+  L.push('END:VCALENDAR');
+  return L.map(fold).join('\r\n') + '\r\n';
+}
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = h('a', { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+const downloadICS = t => download((t.title.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'trip') + '.ics',
+  buildICS(t), 'text/calendar;charset=utf-8');
+
+/* ================= ссылка «поделиться»: весь план внутри ссылки ================= */
+function b64u(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function unb64u(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function readAll(stream, limit) {
+  const reader = stream.getReader(), chunks = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > limit) { reader.cancel(); throw new Error('too big'); }   // защита от «бомбы» в ссылке
+    chunks.push(value);
+  }
+  const out = new Uint8Array(n);
+  let o = 0;
+  chunks.forEach(c => { out.set(c, o); o += c.length; });
+  return out;
+}
+async function pack(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (typeof CompressionStream === 'function') {
+    try { return 'z' + b64u(await readAll(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw')), 1e7)); }
+    catch (e) {}
+  }
+  return 'j' + b64u(bytes);
+}
+async function unpack(str) {
+  const bytes = unb64u(str.slice(1));
+  if (str[0] === 'j') return JSON.parse(new TextDecoder().decode(bytes));
+  if (str[0] !== 'z') throw new Error('format');
+  const raw = await readAll(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')), MAX_INFLATED);
+  return JSON.parse(new TextDecoder().decode(raw));
+}
+// e-mail участников в ссылку не попадают — только имена
+const packTrip = t => ({ v: 1, k: t.id, t: t.title, d: t.dest, s: t.start, e: t.end,
+  p: t.people.map(p => p.name), i: t.items.map(i => [i.id, i.date, i.time, i.end, i.title, i.place, i.note]) });
+const unpackTrip = o => !o || o.v !== 1 ? null : normTrip({
+  id: o.k, title: o.t, dest: o.d, start: o.s, end: o.e,
+  people: (Array.isArray(o.p) ? o.p : []).map(n => ({ name: n, email: '' })),
+  items: (Array.isArray(o.i) ? o.i : []).map(a => Array.isArray(a)
+    ? { id: a[0], date: a[1], time: a[2], end: a[3], title: a[4], place: a[5], note: a[6] } : null)
+});
+const baseUrl = () => location.href.split('#')[0];
+
+/* ================= отрисовка ================= */
+const ui = { editing: null };
+let cur = null, els = {}, shareLink = '', shareTok = 0, routeTok = 0;
+
+function setBack(on) { $('#back').classList.toggle('hide', !on); }
+
+function route() {
+  const hs = location.hash, my = ++routeTok;
+  ui.editing = null; cur = null; els = {};
+  window.scrollTo(0, 0);
+  if (hs.indexOf('#s=') === 0) return openShared(hs.slice(3), my);
+  if (hs.indexOf('#trip=') === 0) {
+    let id = '';
+    try { id = decodeURIComponent(hs.slice(6)); } catch (e) {}
+    const t = state.trips.find(x => x.id === id);
+    if (t) return openTrip(t);
+  }
+  openList();
+}
+
+/* ---- список поездок ---- */
+function openList() {
+  document.title = 'Планировщик поездок';
+  setBack(false);
+  const today = todayISO();
+  const up = state.trips.filter(t => t.end >= today).sort((a, b) => a.start.localeCompare(b.start));
+  const past = state.trips.filter(t => t.end < today).sort((a, b) => b.start.localeCompare(a.start));
+  const card = t => h('a', { class: 'tcard', href: '#trip=' + encodeURIComponent(t.id) },
+    h('b', {}, t.title), h('span', {}, [t.dest, fmtRange(t.start, t.end)].filter(Boolean).join(' · ')),
+    h('br'), h('span', {}, 'Едут: ' + (t.people.length ? t.people.length : 'пока только вы') +
+      ' · пунктов в плане: ' + t.items.length));
+  show(
+    h('div', { class: 'head' },
+      h('div', {}, h('h1', {}, 'Мои поездки'),
+        h('p', { class: 'sub' }, 'Составьте план и отправьте ссылку попутчикам')),
+      h('button', { class: 'btn primary', onclick: newTrip }, '+ Новая поездка')),
+    state.trips.length ? [up.map(card), past.length > 0 && h('p', { class: 'muted' }, 'Прошедшие'), past.map(card)]
+      : h('div', { class: 'empty' }, 'Пока нет поездок. Создайте первую: укажите даты, добавьте план по дням и тех, кто едет с вами.'));
+}
+function newTrip() {
+  const s = todayISO();
+  const t = { id: uid(), title: 'Новая поездка', dest: '', start: s, end: addDays(s, 2), people: [], items: [], updated: Date.now() };
+  state.trips.push(t); save();
+  location.hash = '#trip=' + encodeURIComponent(t.id);
+}
+
+/* ---- редактор поездки ---- */
+function persist() { cur.updated = Date.now(); save(); syncShare(); }
+
+function openTrip(t) {
+  cur = t;
+  document.title = t.title + ' — поездка';
+  setBack(true);
+
+  const fTitle = h('input', { class: 'inp', maxlength: 120, value: t.title });
+  const fDest = h('input', { class: 'inp', maxlength: 120, placeholder: 'Город или страна', value: t.dest });
+  const fStart = h('input', { class: 'inp', type: 'date', value: t.start });
+  const fEnd = h('input', { class: 'inp', type: 'date', value: t.end });
+  fTitle.addEventListener('input', () => { t.title = fTitle.value.trim() || 'Поездка'; document.title = t.title + ' — поездка'; persist(); });
+  fDest.addEventListener('input', () => { t.dest = fDest.value.trim(); persist(); });
+  function dates(which) {
+    let s = fStart.value, e = fEnd.value;
+    if (!validDate(s) || !validDate(e)) { fStart.value = t.start; fEnd.value = t.end; return; }
+    if (e < s) { if (which === 'start') e = s; else s = e; }
+    if (diffDays(s, e) >= MAX_DAYS) {
+      toast('Поездка не может быть длиннее ' + MAX_DAYS + ' дней', true);
+      if (which === 'start') e = addDays(s, MAX_DAYS - 1); else s = addDays(e, -(MAX_DAYS - 1));
+    }
+    t.start = s; t.end = e; fStart.value = s; fEnd.value = e;
+    persist(); renderPlan();
+  }
+  fStart.addEventListener('change', () => dates('start'));
+  fEnd.addEventListener('change', () => dates('end'));
+
+  els.people = h('div'); els.plan = h('div');
+  const metaPanel = h('div', { class: 'panel' },
+    h('h2', {}, 'Поездка'),
+    h('label', { class: 'field' }, h('span', {}, 'Название'), fTitle),
+    h('label', { class: 'field' }, h('span', {}, 'Куда'), fDest),
+    h('div', { class: 'grid2' },
+      h('label', { class: 'field' }, h('span', {}, 'Дата начала'), fStart),
+      h('label', { class: 'field' }, h('span', {}, 'Дата конца'), fEnd)),
+    h('button', { class: 'btn tiny danger', onclick: () => {
+      if (!confirm('Удалить поездку «' + t.title + '» вместе с планом? Это нельзя отменить.')) return;
+      state.trips = state.trips.filter(x => x !== t); save(); location.hash = '';
+    } }, 'Удалить поездку'));
+
+  show(
+    metaPanel,
+    h('div', { class: 'panel' }, h('h2', {}, 'Кто едет'), els.people),
+    h('div', { class: 'panel' }, h('h2', {}, 'План по дням'), els.plan),
+    buildSharePanel(t));
+  renderPeople(); renderPlan(); syncShare();
+}
+
+function renderPeople() {
+  const t = cur, box = els.people;
+  const nm = h('input', { class: 'inp sm', maxlength: 60, placeholder: 'Имя', 'aria-label': 'Имя попутчика' });
+  const em = h('input', { class: 'inp sm', type: 'email', maxlength: 120, placeholder: 'E-mail (необязательно)', 'aria-label': 'E-mail попутчика' });
+  box.replaceChildren();
+  append(box, [
+    t.people.length ? h('div', { class: 'chips' }, t.people.map(p => h('span', { class: 'chip' }, p.name,
+      p.email && h('small', {}, p.email),
+      h('button', { type: 'button', 'aria-label': 'Убрать ' + p.name, onclick: () => {
+        t.people = t.people.filter(x => x !== p); persist(); renderPeople(); renderPlan();
+      } }, '×'))))
+      : h('p', { class: 'free' }, 'Пока никого. Добавьте тех, кто едет с вами.'),
+    h('form', { class: 'row', onsubmit: e => {
+      e.preventDefault();
+      const name = nm.value.trim(), email = em.value.trim();
+      if (!name && !email) { nm.focus(); return; }
+      if (email && !emailRe.test(email)) { toast('Похоже, e-mail введён с ошибкой', true); em.focus(); return; }
+      if (t.people.length >= MAX_PEOPLE) { toast('Слишком много участников', true); return; }
+      if (email && t.people.some(p => p.email.toLowerCase() === email.toLowerCase())) { toast('Этот e-mail уже добавлен', true); return; }
+      t.people.push({ name: name || email.split('@')[0], email });
+      persist(); renderPeople(); renderPlan();
+    } }, nm, em, h('button', { class: 'btn', type: 'submit' }, 'Добавить')),
+    h('p', { class: 'muted' }, 'E-mail нужен только для приглашений в Google Календарь. В ссылку для попутчиков он не попадает.')
+  ]);
+}
+
+function renderDays(box, t, edit) {
+  box.replaceChildren();
+  const days = tripDays(t);
+  days.forEach(d => {
+    const its = dayItems(t, d);
+    const adding = edit && ui.editing && !ui.editing.id && ui.editing.date === d;
+    const n = inRange(t, d) ? diffDays(t.start, d) + 1 : 0;
+    const sec = h('section', { class: 'day' },
+      h('div', { class: 'dayh' }, h('h3', {}, fmtDay(d)),
+        n ? h('span', { class: 'tag' }, 'День ' + n) : h('span', { class: 'tag warn' }, 'вне дат поездки')));
+    its.forEach(it => sec.append(edit && ui.editing && ui.editing.id === it.id
+      ? itemForm(t, it, d) : itemRow(t, it, edit)));
+    if (!its.length && !adding) sec.append(h('p', { class: 'free' }, edit ? 'Пока пусто' : 'Планов нет'));
+    if (adding) sec.append(itemForm(t, null, d));
+    else if (edit) sec.append(h('button', { class: 'btn tiny', onclick: () => { ui.editing = { id: null, date: d }; renderPlan(); } }, '+ Добавить пункт'));
+    box.append(sec);
+  });
+}
+function renderPlan() { renderDays(els.plan, cur, true); }
+
+function itemRow(t, it, edit) {
+  const when = it.time ? (it.end && mins(it.end) > mins(it.time) ? it.time + '–' + it.end : it.time) : 'весь день';
+  const guests = edit ? guestsOf(t) : [];
+  return h('div', { class: 'item' },
+    h('div', { class: 'when' }, when),
+    h('div', { class: 'ibody' },
+      h('div', { class: 'ititle' }, it.title),
+      it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place), target: '_blank', rel: 'noopener' }, '📍 ' + it.place)),
+      it.note && h('div', { class: 'inote' }, it.note),
+      h('div', { class: 'iacts' },
+        h('a', { class: 'btn tiny', target: '_blank', rel: 'noopener', href: itemGcal(t, it, guests),
+          title: guests.length ? 'Откроется Google Календарь с приглашёнными участниками' : 'Откроется Google Календарь' }, 'В календарь'),
+        edit && h('button', { class: 'btn tiny', onclick: () => { ui.editing = { id: it.id }; renderPlan(); } }, 'Изменить'),
+        edit && h('button', { class: 'btn tiny danger', onclick: () => {
+          if (!confirm('Удалить «' + it.title + '»?')) return;
+          t.items = t.items.filter(x => x !== it); persist(); renderPlan();
+        } }, 'Удалить'))));
+}
+
+function itemForm(t, it, date) {
+  const fDay = h('select', { class: 'inp sm' }, tripDays(t).map(d => h('option', { value: d }, fmtDay(d))));
+  fDay.value = it ? it.date : date;
+  const fStart = h('input', { class: 'inp sm', type: 'time', value: it ? it.time : '' });
+  const fEnd = h('input', { class: 'inp sm', type: 'time', value: it ? it.end : '' });
+  const fTitle = h('input', { class: 'inp sm', maxlength: 120, placeholder: 'Например: Музей Прадо', value: it ? it.title : '' });
+  const fPlace = h('input', { class: 'inp sm', maxlength: 160, placeholder: 'Адрес или название места', value: it ? it.place : '' });
+  const fNote = h('textarea', { class: 'inp sm', rows: 2, maxlength: 600, placeholder: 'Билеты, бронь, где встречаемся…', value: it ? it.note : '' });
+  const form = h('form', { class: 'iform', onsubmit: e => {
+    e.preventDefault();
+    const title = fTitle.value.trim();
+    if (!title) { toast('Введите название пункта', true); fTitle.focus(); return; }
+    if (!it && t.items.length >= MAX_ITEMS) { toast('Слишком много пунктов в плане', true); return; }
+    const time = fStart.value;
+    const vals = { date: fDay.value, time, end: time ? fEnd.value : '', title, place: fPlace.value.trim(), note: fNote.value.trim() };
+    if (it) Object.assign(it, vals); else t.items.push(Object.assign({ id: uid() }, vals));
+    ui.editing = null; persist(); renderPlan();
+  } },
+    h('label', { class: 'field' }, h('span', {}, 'Что делаем'), fTitle),
+    h('div', { class: 'grid2' },
+      h('label', { class: 'field' }, h('span', {}, 'День'), fDay),
+      h('div', { class: 'grid2 times', style: 'margin:0' },
+        h('label', { class: 'field' }, h('span', {}, 'Начало'), fStart),
+        h('label', { class: 'field' }, h('span', {}, 'Конец'), fEnd))),
+    h('label', { class: 'field' }, h('span', {}, 'Место'), fPlace),
+    h('label', { class: 'field' }, h('span', {}, 'Заметка'), fNote),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary', type: 'submit' }, it ? 'Сохранить' : 'Добавить'),
+      h('button', { class: 'btn', type: 'button', onclick: () => { ui.editing = null; renderPlan(); } }, 'Отмена')));
+  setTimeout(() => fTitle.focus(), 0);
+  return form;
+}
+
+/* ---- поделиться и календарь ---- */
+function buildSharePanel(t) {
+  els.link = h('input', { class: 'inp', readonly: true, 'aria-label': 'Ссылка на план', placeholder: 'Готовим ссылку…' });
+  els.tg = h('a', { class: 'btn', target: '_blank', rel: 'noopener' }, 'Telegram');
+  els.wa = h('a', { class: 'btn', target: '_blank', rel: 'noopener' }, 'WhatsApp');
+  els.mail = h('a', { class: 'btn' }, 'E-mail');
+  els.len = h('p', { class: 'muted hide' });
+  els.gcal = h('a', { class: 'btn primary', target: '_blank', rel: 'noopener' });
+  els.gnote = h('p', { class: 'muted' });
+  return h('div', { class: 'panel' },
+    h('h2', {}, 'Поделиться планом'),
+    h('p', { class: 'muted', style: 'margin:0 0 12px' },
+      'Отправьте ссылку попутчикам — они увидят весь план и смогут сохранить его себе. План лежит прямо в ссылке, поэтому после изменений отправьте новую.'),
+    els.link,
+    h('div', { class: 'row', style: 'margin-top:10px' },
+      h('button', { class: 'btn', onclick: copyLink }, 'Копировать'),
+      navigator.share && h('button', { class: 'btn', onclick: () => {
+        if (shareLink) navigator.share({ title: t.title, text: 'План поездки «' + t.title + '»', url: shareLink }).catch(() => {});
+      } }, 'Поделиться…'),
+      els.tg, els.wa, els.mail),
+    els.len,
+    h('hr', { class: 'sep' }),
+    h('h2', {}, 'Календарь'),
+    h('div', { class: 'row' }, els.gcal,
+      h('button', { class: 'btn', onclick: () => downloadICS(t) }, 'Скачать .ics (весь план)')),
+    els.gnote);
+}
+async function copyLink() {
+  if (!shareLink) return;
+  try { await navigator.clipboard.writeText(shareLink); toast('Ссылка скопирована'); }
+  catch (e) {
+    els.link.select();
+    try { document.execCommand('copy'); toast('Ссылка скопирована'); }
+    catch (_) { toast('Выделите ссылку и скопируйте вручную', true); }
+  }
+}
+function syncShare() {
+  const t = cur;
+  if (!t || !els.gcal) return;
+  const guests = guestsOf(t);
+  els.gcal.href = tripGcal(t, guests);
+  els.gcal.textContent = guests.length ? 'Пригласить участников в Google Календарь' : 'Добавить в Google Календарь';
+  els.gnote.textContent = guests.length
+    ? 'Откроется Google Календарь с поездкой и уже добавленными гостями — нажмите «Сохранить» и подтвердите отправку приглашений. Каждый пункт плана можно так же добавить кнопкой «В календарь». Файл .ics открывается в любом календаре (Google, Apple, Outlook).'
+    : 'Добавьте e-mail участников выше — тогда поездку можно отправить им приглашением в Google Календарь. Файл .ics открывается в любом календаре (Google, Apple, Outlook).';
+  const my = ++shareTok;
+  pack(packTrip(t)).then(p => {
+    if (my !== shareTok || cur !== t) return;
+    shareLink = baseUrl() + '#s=' + p;
+    els.link.value = shareLink;
+    const msg = 'План поездки «' + t.title + '»';
+    els.tg.href = 'https://t.me/share/url?url=' + encodeURIComponent(shareLink) + '&text=' + encodeURIComponent(msg);
+    els.wa.href = 'https://wa.me/?text=' + encodeURIComponent(msg + ' ' + shareLink);
+    els.mail.href = 'mailto:' + guests.join(',') + '?subject=' + encodeURIComponent(msg) +
+      '&body=' + encodeURIComponent(msg + ':\n' + shareLink);
+    els.len.classList.toggle('hide', shareLink.length < 3500);
+    els.len.textContent = 'Ссылка получилась длинной (' + shareLink.length + ' символов): в некоторых мессенджерах она может обрезаться. Сократите заметки или отправьте план файлом .ics.';
+  }).catch(() => {});
+}
+
+/* ---- просмотр чужого плана ---- */
+async function openShared(payload, my) {
+  setBack(true);
+  document.title = 'План поездки';
+  show(h('p', { class: 'lead' }, 'Загружаем план…'));
+  let t = null, reason = '';
+  try { t = unpackTrip(await unpack(payload)); }
+  catch (e) {
+    if (payload[0] === 'z' && typeof DecompressionStream !== 'function') reason = 'Этот браузер слишком старый, чтобы открыть план. Обновите его или откройте ссылку в другом.';
+  }
+  if (my !== routeTok) return;
+  if (!t) {
+    show(h('div', { class: 'panel' }, h('h2', {}, 'Не удалось открыть план'),
+      h('p', { class: 'lead' }, reason || 'Ссылка повреждена или скопирована не полностью. Попросите отправить её ещё раз.')));
+    return;
+  }
+  document.title = t.title + ' — план поездки';
+  const plan = h('div');
+  show(
+    h('div', { class: 'head' }, h('div', {}, h('h1', {}, t.title),
+      h('p', { class: 'sub' }, [t.dest, fmtRange(t.start, t.end)].filter(Boolean).join(' · ')))),
+    h('div', { class: 'panel banner' },
+      h('b', {}, 'Вам прислали план поездки'),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', onclick: () => importTrip(t) }, 'Сохранить себе'),
+        h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: tripGcal(t, []) }, 'В Google Календарь'),
+        h('button', { class: 'btn', onclick: () => downloadICS(t) }, 'Скачать .ics'))),
+    t.people.length > 0 && h('div', { class: 'panel' }, h('h2', {}, 'Кто едет'),
+      h('div', { class: 'chips', style: 'margin:0' }, t.people.map(p => h('span', { class: 'chip ro' }, p.name)))),
+    h('div', { class: 'panel' }, h('h2', {}, 'План по дням'), plan));
+  renderDays(plan, t, false);
+}
+function importTrip(t) {
+  const i = state.trips.findIndex(x => x.id === t.id);
+  if (i >= 0) {
+    if (!confirm('Эта поездка уже есть у вас. Заменить вашу копию обновлённым планом? Ваши правки в ней пропадут.')) return;
+    t.people = state.trips[i].people.length ? state.trips[i].people : t.people;   // свои приглашённые не теряем
+    state.trips[i] = t;
+  } else state.trips.push(t);
+  save();
+  location.hash = '#trip=' + encodeURIComponent(t.id);
+}
+
+/* ================= тема и запуск ================= */
+function applyTheme(light) {
+  document.body.classList.toggle('light', light);
+  $('#theme').textContent = light ? 'Тёмная тема' : 'Светлая тема';
+  document.querySelector('meta[name="theme-color"]').content = light ? '#ffffff' : '#16131f';
+  try { localStorage.setItem('habitTheme', light ? 'light' : 'dark'); } catch (e) {}
+}
+$('#theme').addEventListener('click', () => applyTheme(!document.body.classList.contains('light')));
+{
+  let saved = null;
+  try { saved = localStorage.getItem('habitTheme'); } catch (e) {}
+  applyTheme(saved ? saved === 'light' : window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+}
+load();
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
