@@ -3,117 +3,277 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#16131f">
+<meta name="theme-color" content="#0d1218">
 <title>Планировщик поездок</title>
 <link rel="icon" href="../icon-192.png">
 <link rel="apple-touch-icon" href="../icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600&display=swap">
+<script>
+/* тема выставляется до отрисовки, чтобы страница не мигала */
+try {
+  var s = localStorage.getItem('habitTheme');
+  document.documentElement.dataset.theme = s === 'light' || s === 'dark' ? s
+    : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+} catch (e) {}
+</script>
 <style>
+/* Раскладка: шапка поездки → две колонки (дни слева; расходы, участники, ссылка справа).
+   Цвет несёт день (зелёный / терракотовый, как в таблице), форму несёт значок типа пункта. */
 :root {
-  --ink:#16131f; --panel:#201c2c; --line:#302b41; --line2:#453e5c; --sunk:#16131f;
-  --tx:#ece9f3; --muted:#9990ad; --accent:#ffb457; --onaccent:#211a10; --bad:#ff8fa3;
+  --bg:#f1f4f3; --surface:#ffffff; --surface2:#e8eeec; --line:#d9e1df; --line2:#bccac6;
+  --tx:#13202b; --muted:#546572; --accent:#f0b35a; --accent-ink:#2a1b05; --accent-tx:#8f5107;
+  --bad:#b3342d;
+  --day-a:#17744c; --day-a-bg:rgba(23,116,76,.11);
+  --day-b:#b8402b; --day-b-bg:rgba(184,64,43,.10);
+  --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100;
+  --shadow:0 1px 2px rgba(19,32,43,.05), 0 14px 30px -18px rgba(19,32,43,.28);
+  --f-display:"Unbounded", "Onest", ui-sans-serif, system-ui, sans-serif;
+  --f-body:"Onest", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme:light;
 }
-body.light {
-  --ink:#ffffff; --panel:#f7f6f9; --line:#e3e0e9; --line2:#c9c4d4; --sunk:#ffffff;
-  --tx:#1b1725; --muted:#6c6580; --accent:#e0912f; --onaccent:#2a1c06; --bad:#d6405b;
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0d1218; --surface:#151c25; --surface2:#1c2530; --line:#263140; --line2:#3a4a60;
+    --tx:#e8eef3; --muted:#92a2b4; --accent:#f0b35a; --accent-ink:#241703; --accent-tx:#f0b35a;
+    --bad:#ff9087;
+    --day-a:#5fd3a0; --day-a-bg:rgba(95,211,160,.13);
+    --day-b:#ff9580; --day-b-bg:rgba(255,149,128,.13);
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 14px 30px -18px rgba(0,0,0,.6);
+    color-scheme:dark;
+  }
 }
-* { box-sizing:border-box; }
-body { margin:0; background:var(--ink); color:var(--tx);
-  font-family:"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size:15px; line-height:1.5; }
-.wrap { max-width:780px; margin:0 auto; padding:20px 20px 60px; }
-button { font:inherit; cursor:pointer; }
-a { color:var(--accent); }
-:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-.hide { display:none !important; }
+:root[data-theme="dark"] {
+  --bg:#0d1218; --surface:#151c25; --surface2:#1c2530; --line:#263140; --line2:#3a4a60;
+  --tx:#e8eef3; --muted:#92a2b4; --accent:#f0b35a; --accent-ink:#241703; --accent-tx:#f0b35a;
+  --bad:#ff9087;
+  --day-a:#5fd3a0; --day-a-bg:rgba(95,211,160,.13);
+  --day-b:#ff9580; --day-b-bg:rgba(255,149,128,.13);
+  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 14px 30px -18px rgba(0,0,0,.6);
+  color-scheme:dark;
+}
 
-.topbar { display:flex; align-items:center; gap:12px; margin-bottom:18px; min-height:34px; }
-.topbar .back { font-size:14px; text-decoration:none; }
-.topbar .back:hover { text-decoration:underline; }
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; }
+body { margin:0; background:var(--bg); color:var(--tx); font:15px/1.5 var(--f-body); }
+.wrap { max-width:1080px; margin:0 auto; padding-top:max(16px, env(safe-area-inset-top, 0px)); padding-bottom:72px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); }
+button { font:inherit; cursor:pointer; color:inherit; }
+a { color:var(--accent-tx); }
+:focus-visible { outline:2px solid var(--accent-tx); outline-offset:2px; }
+.hide { display:none !important; }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.ic { display:inline-flex; }
+.ic svg { width:1em; height:1em; }
+
+.topbar { display:flex; align-items:center; gap:12px; margin-bottom:16px; min-height:36px; }
+.topbar .back { font-size:14px; text-decoration:none; color:var(--muted); }
+.topbar .back:hover { color:var(--tx); }
 .topbar .spacer { margin-left:auto; }
 
-.head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
-.head h1 { margin:0; font-size:25px; font-weight:650; letter-spacing:-.02em; }
-.sub { margin:2px 0 0; color:var(--muted); font-size:14px; }
-.lead { color:var(--muted); }
+#msg { position:fixed; left:50%; transform:translateX(-50%); bottom:max(16px, env(safe-area-inset-bottom, 0px));
+  width:min(92vw, 420px); z-index:30; pointer-events:none; }
+.msg { padding:11px 14px; border-radius:12px; font-size:14px; box-shadow:var(--shadow); background:var(--surface); border:1px solid var(--line2); }
+.msg.err { border-color:var(--bad); color:var(--bad); }
+.msg.ok { border-color:var(--accent-tx); }
 
-.msg { padding:9px 12px; border-radius:10px; font-size:14px; margin-bottom:14px; }
-.msg.err { background:rgba(255,143,163,.12); border:1px solid rgba(255,143,163,.4); color:var(--bad); }
-.msg.ok { background:rgba(255,180,87,.12); border:1px solid rgba(255,180,87,.35); color:var(--accent); }
-
-.btn { display:inline-block; background:var(--panel); border:1px solid var(--line); color:var(--tx);
-  padding:10px 16px; border-radius:10px; text-decoration:none; text-align:center; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; background:var(--surface); border:1px solid var(--line);
+  color:var(--tx); padding:10px 16px; border-radius:10px; text-decoration:none; text-align:center; font-weight:500; }
 .btn:hover { border-color:var(--line2); }
-.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--onaccent); font-weight:600; }
-.btn.primary:hover { filter:brightness(1.07); }
-.btn.tiny { padding:5px 10px; font-size:13px; border-radius:8px; }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+.btn.primary:hover { filter:brightness(1.06); }
+.btn.tiny { padding:6px 11px; font-size:13px; border-radius:8px; }
+.btn.ghost { background:transparent; border-color:transparent; color:var(--muted); }
+.btn.ghost:hover { color:var(--tx); background:var(--surface2); }
 .btn.danger { color:var(--bad); }
 .btn:disabled { opacity:.55; cursor:default; }
-.inp { width:100%; background:var(--sunk); border:1px solid var(--line); color:var(--tx);
-  padding:11px 13px; border-radius:10px; font:inherit; }
+.inp { width:100%; background:var(--bg); border:1px solid var(--line); color:var(--tx); padding:11px 13px; border-radius:10px; font:inherit; }
 .inp.sm { padding:8px 11px; }
-.inp::placeholder { color:#6e6684; }
+.inp::placeholder { color:var(--muted); opacity:.75; }
 textarea.inp { resize:vertical; }
 .field { display:block; margin-bottom:10px; }
 .field > span { display:block; font-size:13px; color:var(--muted); margin-bottom:5px; }
 .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .row .inp { flex:1; min-width:130px; width:auto; }
-
-.panel { background:var(--panel); border:1px solid var(--line); border-radius:14px;
-  padding:16px; margin-bottom:16px; }
-.panel h2 { margin:0 0 12px; font-size:17px; font-weight:600; }
 .muted { color:var(--muted); font-size:13px; margin:10px 0 0; }
-.empty { color:var(--muted); text-align:center; padding:30px 16px;
-  border:1px dashed var(--line); border-radius:14px; margin-bottom:16px; }
+.lead { color:var(--muted); }
 
-.tcard { display:block; text-decoration:none; color:inherit; background:var(--panel);
-  border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:10px; }
-.tcard:hover { border-color:var(--line2); }
-.tcard b { display:block; font-size:17px; font-weight:600; }
-.tcard span { color:var(--muted); font-size:13.5px; }
+.panel { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:18px; }
+.panel h2 { margin:0 0 12px; font-size:15px; font-weight:600; }
+.sep { border:0; border-top:1px solid var(--line); margin:18px 0; }
 
+/* ---------- шапка поездки ---------- */
+.hero { position:relative; overflow:hidden; background:var(--surface); border:1px solid var(--line); border-radius:22px;
+  padding:28px; box-shadow:var(--shadow); margin-bottom:22px; }
+.hero::before { content:""; position:absolute; top:-170px; right:-110px; width:440px; height:440px; pointer-events:none;
+  background:radial-gradient(closest-side, color-mix(in srgb, var(--accent) 18%, transparent), transparent); }
+.hero > * { position:relative; }
+.hero > .ridge { position:absolute; right:0; bottom:0; width:min(600px, 100%); height:120px; color:var(--tx); opacity:.07; pointer-events:none; }
+.hero > .ridge svg { width:100%; height:100%; display:block; }
+.eyebrow { font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+.hero h1 { margin:8px 0 6px; font-family:var(--f-display); font-weight:600; font-size:clamp(26px, 5.4vw, 42px);
+  line-height:1.1; letter-spacing:-.02em; text-wrap:balance; overflow-wrap:anywhere; }
+.hero .where { margin:0 0 4px; color:var(--muted); }
+.when { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:6px 0 0; font-size:16px; font-weight:500; }
+.cd { font-size:13px; font-weight:600; padding:3px 11px; border-radius:99px; background:var(--surface2); color:var(--muted); }
+.cd.soon, .cd.now { background:var(--day-a-bg); color:var(--day-a); }
+.route { display:flex; align-items:flex-start; margin-top:24px; overflow-x:auto; padding-bottom:4px; max-width:100%; }
+.stop { display:flex; flex-direction:column; gap:1px; flex:none; }
+.stop .dot { width:12px; height:12px; border-radius:50%; border:3px solid var(--accent-tx); background:var(--surface); margin-bottom:6px; }
+.stop b { font-weight:600; }
+.stop small { color:var(--muted); font-size:12px; }
+.rlink { flex:1 1 36px; min-width:28px; border-top:2px dashed var(--line2); margin:5px 10px 0; }
+.stats { display:flex; flex-wrap:wrap; gap:10px 32px; margin-top:24px; }
+.stat b { display:block; font-family:var(--f-display); font-weight:600; font-size:20px; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+.stat span { font-size:12.5px; color:var(--muted); }
+.who { display:flex; align-items:center; gap:10px; margin-top:20px; flex-wrap:wrap; }
+.avs { display:flex; }
+.av { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700;
+  border:2px solid var(--surface); margin-left:-8px; background:var(--surface2); color:var(--tx); }
+.av:first-child { margin-left:0; }
+.av.k0 { background:var(--day-a-bg); color:var(--day-a); }
+.av.k1 { background:var(--day-b-bg); color:var(--day-b); }
+.who small { color:var(--muted); font-size:13px; }
+
+/* ---------- раскладка ---------- */
+.layout { display:grid; gap:18px; grid-template-columns:minmax(0, 1fr); grid-template-areas:"budget" "main" "rest"; }
+.l-budget { grid-area:budget; }
+.l-main { grid-area:main; min-width:0; }
+.l-rest { grid-area:rest; display:flex; flex-direction:column; gap:18px; min-width:0; }
+@media (min-width:900px) {
+  .layout { grid-template-columns:minmax(0, 1fr) 340px; grid-template-areas:"main budget" "main rest"; grid-template-rows:auto 1fr; gap:22px; }
+}
+
+/* ---------- расходы ---------- */
+.total { font-family:var(--f-display); font-weight:600; font-size:30px; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums; }
+.total small { font-size:16px; color:var(--muted); margin-left:4px; font-weight:500; }
+.bar { display:flex; gap:2px; height:14px; margin:16px 0 12px; }
+.bar i { display:block; min-width:4px; border-radius:3px; }
+.legend { list-style:none; margin:0; padding:0; }
+.legend li { display:grid; grid-template-columns:12px minmax(0, 1fr) auto 42px; gap:10px; align-items:center; padding:7px 0; font-size:14px;
+  border-top:1px solid var(--line); font-variant-numeric:tabular-nums; }
+.legend li:first-child { border-top:0; }
+.legend .nm { display:flex; align-items:center; gap:7px; min-width:0; }
+.legend .nm .ic { color:var(--muted); }
+.legend .pc { color:var(--muted); text-align:right; }
+.sw { width:12px; height:12px; border-radius:3px; display:block; }
+.v1 { background:var(--viz-1); } .v2 { background:var(--viz-2); } .v3 { background:var(--viz-3); } .v4 { background:var(--viz-4); }
+
+/* ---------- полоса дней ---------- */
+.strip { position:sticky; top:env(safe-area-inset-top, 0px); z-index:5; background:var(--bg); padding:8px 0 10px; margin-bottom:6px; }
+.strip-in { position:relative; display:flex; gap:8px; overflow-x:auto; scrollbar-width:none; padding:2px 2px 4px; }
+.strip-in::-webkit-scrollbar { display:none; }
+.dchip { position:relative; flex:none; min-width:96px; display:grid; gap:1px; text-align:left; padding:8px 12px 12px; border-radius:12px;
+  border:1px solid var(--line); background:var(--surface); overflow:hidden; }
+.dchip .dn { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+.dchip b { font-size:14px; font-weight:600; }
+.dchip .da { font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.dchip .dbar { position:absolute; left:0; bottom:0; height:3px; background:var(--day); border-radius:0 3px 0 0; }
+.dchip.on { border-color:var(--day); box-shadow:0 0 0 1px var(--day); }
+.dchip.today .dn::after { content:" · сегодня"; color:var(--day); }
+.a { --day:var(--day-a); --day-bg:var(--day-a-bg); }
+.b { --day:var(--day-b); --day-bg:var(--day-b-bg); }
+
+/* ---------- день ---------- */
+.day { background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:18px 18px 12px; margin-bottom:16px; scroll-margin-top:92px; }
+.dh { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:14px; align-items:center; margin-bottom:10px; }
+.dtile { width:56px; height:60px; border-radius:14px; background:var(--day-bg); color:var(--day); display:grid; place-content:center; text-align:center; line-height:1; }
+.dtile b { font-family:var(--f-display); font-size:23px; font-weight:600; }
+.dtile span { font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; margin-top:5px; }
+.dtitle { min-width:0; }
+.dtitle h3 { margin:0; font-size:17px; font-weight:600; overflow-wrap:anywhere; }
+.dsub { color:var(--muted); font-size:13px; }
+.dsub.warn { color:var(--bad); }
+.dsum { font-weight:600; font-size:14px; padding:5px 12px; border-radius:99px; background:var(--day-bg); color:var(--day); white-space:nowrap;
+  font-variant-numeric:tabular-nums; }
+.dlabel { width:100%; font:inherit; font-size:17px; font-weight:600; background:transparent; color:var(--tx); border:0; border-bottom:1px dashed var(--line2);
+  padding:0 0 2px; border-radius:0; }
+.dlabel::placeholder { font-weight:400; color:var(--muted); }
+.dlabel:focus-visible { outline-offset:3px; }
+.free { color:var(--muted); font-size:14px; margin:6px 0 10px; }
+
+.tl { list-style:none; margin:0; padding:0; }
+.it { --tc:60px; --bc:36px; --gp:10px; position:relative; display:grid; grid-template-columns:var(--tc) var(--bc) minmax(0, 1fr) auto 28px;
+  column-gap:var(--gp); padding:9px 0; }
+.it::before { content:""; position:absolute; left:calc(var(--tc) + var(--gp) + var(--bc) / 2 - 1px); top:0; bottom:0; width:2px; background:var(--line); }
+.it:first-child::before { top:calc(9px + var(--bc) / 2); }
+.it:last-child::before { bottom:calc(100% - 9px - var(--bc) / 2); }
+.tm { text-align:right; padding-top:7px; font-variant-numeric:tabular-nums; font-weight:600; font-size:14px; line-height:1.2; }
+.tm small { display:block; font-weight:400; color:var(--muted); font-size:12px; margin-top:2px; }
+.tm.none { font-weight:400; color:var(--muted); }
+.bd { width:var(--bc); height:var(--bc); border-radius:50%; display:grid; place-items:center; background:var(--day-bg); color:var(--day);
+  position:relative; z-index:1; box-shadow:0 0 0 4px var(--surface); font-size:18px; }
+.it.nested { --bc:36px; }
+.it.nested .bd { width:28px; height:28px; margin:4px; font-size:15px; }
+.ib { min-width:0; padding-top:6px; }
+.ititle { font-weight:600; overflow-wrap:anywhere; }
+.it.nested .ititle { font-weight:500; }
+.iplace { font-size:13.5px; overflow-wrap:anywhere; }
+.iplace a { color:var(--muted); text-decoration:none; }
+.iplace a:hover { color:var(--accent-tx); text-decoration:underline; }
+.tag { display:inline-block; margin:5px 6px 0 0; font-size:12.5px; background:var(--surface2); color:var(--muted); border-radius:8px; padding:2px 9px; overflow-wrap:anywhere; }
+.inside { font-size:12.5px; color:var(--muted); margin-top:2px; overflow-wrap:anywhere; }
+.cost { padding-top:7px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; font-size:14px; text-align:right; }
+.cost small { color:var(--muted); font-weight:500; margin-left:3px; }
+.acts { display:none; gap:2px; flex-wrap:wrap; margin:6px 0 2px -9px; }
+.it.open .acts { display:flex; }
+.more { align-self:start; margin-top:5px; width:28px; height:28px; border-radius:8px; border:0; background:transparent; color:var(--muted);
+  display:grid; place-items:center; font-size:18px; line-height:1; }
+.more:hover, .it.open .more { background:var(--surface2); color:var(--tx); }
+@media (hover:hover) {
+  .more { opacity:0; }
+  .it:hover .more, .it:focus-within .more, .it.open .more { opacity:1; }
+}
+.itf { padding:8px 0 10px; }
+.iform { background:var(--bg); border:1px solid var(--line2); border-radius:14px; padding:14px; }
+.iform .grid2 { margin-bottom:10px; }
+.iform .row { margin-top:4px; }
+.addit { margin:2px 0 4px; }
+
+/* ---------- прочее ---------- */
 .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
-.chip { display:inline-flex; align-items:center; gap:7px; background:var(--sunk);
-  border:1px solid var(--line); border-radius:99px; padding:4px 6px 4px 12px; font-size:14px; }
+.chip { display:inline-flex; align-items:center; gap:7px; background:var(--bg); border:1px solid var(--line); border-radius:99px; padding:4px 6px 4px 12px; font-size:14px; }
 .chip.ro { padding:4px 12px; }
 .chip small { color:var(--muted); font-size:12px; }
 .chip button { background:none; border:0; color:var(--muted); font-size:17px; line-height:1; padding:0 4px; }
 .chip button:hover { color:var(--bad); }
-
-.day { padding:14px 0; border-top:1px solid var(--line); }
-.day:first-of-type { border-top:0; padding-top:0; }
-.dayh { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
-.dayh h3 { margin:0; font-size:16px; font-weight:600; }
-.tag { font-size:12px; color:var(--muted); background:var(--sunk); border:1px solid var(--line);
-  border-radius:99px; padding:1px 9px; }
-.tag.warn { color:var(--bad); border-color:rgba(255,143,163,.4); }
-.free { color:var(--muted); font-size:14px; margin:4px 0 8px; }
-.item { display:flex; gap:12px; padding:9px 0; }
-.item + .item { border-top:1px dashed var(--line); }
-.when { flex:0 0 78px; color:var(--muted); font-size:14px; font-variant-numeric:tabular-nums; padding-top:1px; }
-.ibody { flex:1; min-width:0; }
-.ititle { font-weight:550; overflow-wrap:anywhere; }
-.iplace, .inote { font-size:14px; overflow-wrap:anywhere; }
-.iplace a { text-decoration:none; }
-.iplace a:hover { text-decoration:underline; }
-.inote { color:var(--muted); white-space:pre-wrap; }
-.iacts { display:flex; gap:6px; flex-wrap:wrap; margin-top:7px; }
-.iform { background:var(--sunk); border:1px solid var(--line2); border-radius:12px; padding:12px; margin:8px 0; }
-.iform .grid2 { margin-bottom:10px; }
-.iform .row { margin-top:4px; }
-
-.banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between; }
+.settings > summary { cursor:pointer; font-weight:600; font-size:15px; }
+.settings[open] > summary { margin-bottom:14px; }
+.banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between; margin-bottom:18px; }
 .banner b { font-size:15px; }
-.sep { border:0; border-top:1px solid var(--line); margin:18px 0; }
+
+.head { display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+.head h1 { margin:0; font-family:var(--f-display); font-weight:600; font-size:clamp(24px, 5vw, 34px); letter-spacing:-.02em; line-height:1.1; }
+.sub { margin:6px 0 0; color:var(--muted); }
+.tgrid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); }
+.tcard { display:flex; flex-direction:column; gap:6px; text-decoration:none; color:inherit; background:var(--surface); border:1px solid var(--line);
+  border-radius:18px; padding:18px; box-shadow:var(--shadow); }
+.tcard:hover { border-color:var(--line2); }
+.tcard b { font-family:var(--f-display); font-weight:600; font-size:18px; letter-spacing:-.01em; overflow-wrap:anywhere; }
+.tcard span { color:var(--muted); font-size:13.5px; }
+.tc-meta { display:flex; gap:6px 14px; flex-wrap:wrap; margin-top:6px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.tc-meta strong { color:var(--tx); font-weight:600; }
+.sample { margin-top:18px; display:flex; gap:14px; align-items:center; justify-content:space-between; flex-wrap:wrap; border-style:dashed; }
+.sample b { display:block; }
+.sample span { color:var(--muted); font-size:13.5px; }
+.group { margin:26px 0 12px; font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-weight:600; }
 
 @media (max-width:560px) {
-  .wrap { padding:14px 12px 60px; }
-  .head h1 { font-size:21px; }
+  .hero { padding:22px 18px; border-radius:18px; }
   .inp, .inp.sm { font-size:16px; padding:12px 13px; }   /* 16px не даёт iOS зумить */
   .btn { padding:12px 16px; }
-  .btn.tiny { padding:7px 11px; }
-  .panel { padding:13px; border-radius:13px; }
-  .when { flex-basis:62px; font-size:13px; }
+  .btn.tiny { padding:8px 12px; }
+  .panel { padding:16px; }
+  .day { padding:16px 14px 10px; border-radius:16px; }
+  .dh { grid-template-columns:auto minmax(0, 1fr); }
+  .dsum { grid-column:1 / -1; justify-self:start; }
+  .it { --tc:48px; --bc:32px; --gp:8px; }
+  .bd { font-size:16px; }
+  .it.nested .bd { width:24px; height:24px; margin:4px; font-size:13px; }
   .grid2 { grid-template-columns:1fr; }
   .iform .grid2.times { grid-template-columns:1fr 1fr; }
 }
@@ -125,7 +285,7 @@ textarea.inp { resize:vertical; }
 <div class="wrap">
   <div class="topbar">
     <a class="back hide" id="back" href="#">← Мои поездки</a>
-    <button class="btn tiny spacer" id="theme">Светлая тема</button>
+    <button class="btn tiny spacer" id="theme" type="button">Светлая тема</button>
   </div>
   <div id="msg" role="status" aria-live="polite"></div>
   <div id="view"></div>
@@ -136,19 +296,24 @@ textarea.inp { resize:vertical; }
 'use strict';
 /* ================= константы и утилиты ================= */
 const STORE = 'tripPlans.v1';
-const MAX_DAYS = 60, MAX_PEOPLE = 30, MAX_ITEMS = 400, MAX_INFLATED = 400000;
+const MAX_DAYS = 60, MAX_PEOPLE = 30, MAX_ITEMS = 400, MAX_INFLATED = 400000, MAX_COST = 1e9;
+const CURRENCIES = ['₸', 'сом', '₽', '$', '€', ''];
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
 const isoRe = /^\d{4}-\d{2}-\d{2}$/;
 const goodId = x => typeof x === 'string' && /^[\w-]{1,40}$/.test(x);
+const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
 const $ = s => document.querySelector(s);
 const pad = n => String(n).padStart(2, '0');
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const plural = (n, a, b, c) => { const m = n % 100, k = n % 10; return m > 10 && m < 20 ? c : k === 1 ? a : k > 1 && k < 5 ? b : c; };
+const reduced = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* Все данные (в том числе из чужих ссылок) попадают на страницу только через
-   textContent / setAttribute, поэтому HTML из них никогда не разбирается. */
+   textContent / setAttribute, поэтому HTML из них никогда не разбирается.
+   Значки — постоянные строки внутри этого файла, не данные. */
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   let value;
@@ -171,6 +336,7 @@ function append(el, kids) {
     else el.append(k.nodeType ? k : document.createTextNode(String(k)));
   }
 }
+function raw(html) { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; }
 
 /* replaceChildren сам не раскладывает массивы и превращает false в текст «false» */
 function show(...kids) {
@@ -186,6 +352,61 @@ function toast(text, bad) {
   toastTimer = setTimeout(() => $('#msg').replaceChildren(), 3500);
 }
 
+/* ================= значки и типы пунктов ================= */
+const ICONS = {
+  plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
+  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+  bus: '<path d="M8 6v6M15 6v6M2 12h19.6M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>',
+  bed: '<path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4M12 4v6M2 18h20"/>',
+  food: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>',
+  cap: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  dot: '<circle cx="12" cy="12" r="3"/>'
+};
+function ico(name) {
+  const s = raw('<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    (own(ICONS, name) ? ICONS[name] : ICONS.dot) + '</svg></span>');
+  return s;
+}
+const RIDGE = '<span class="ridge" aria-hidden="true"><svg viewBox="0 0 600 120" preserveAspectRatio="none"><path fill="currentColor" d="M0 120V80l58-38 42 24 76-66 62 56 48-32 88 70 58-40 70 56 52-34 46 24V120z"/></svg></span>';
+
+const KINDS = {
+  flight: { label: 'Перелёт', icon: 'plane' },
+  arrive: { label: 'Прибытие', icon: 'pin' },
+  transport: { label: 'Транспорт', icon: 'car' },
+  lodging: { label: 'Жильё', icon: 'bed' },
+  food: { label: 'Еда', icon: 'food' },
+  walk: { label: 'Прогулка', icon: 'compass' },
+  work: { label: 'Дела', icon: 'cap' },
+  rest: { label: 'Отдых', icon: 'moon' },
+  other: { label: 'Другое', icon: 'dot' }
+};
+const GUESS = [
+  ['flight', /самол[её]т|аэропорт|рейс|вылет|прил[её]т|авиа/i],
+  ['lodging', /гостиниц|отел|хостел|hostel|квартир|апарт|ночлег|заселен|орналас/i],
+  ['food', /завтрак|обед|ужин|кафе|ресторан|хавчик|кофе|ланч|перекус|тамақ/i],
+  ['transport', /такси|автовокзал|автобус|вокзал|поезд|метро|трансфер|маршрутк|электричк/i],
+  ['walk', /қыдыр|гуля|прогулк|экскурс|музей|парк|набережн/i],
+  ['work', /school|школ|встреч|работ|конференц|лекци|урок/i],
+  ['rest', /отбой|отдых|спать/i]
+];
+const kindOf = it => own(KINDS, it.kind) ? it.kind : ((GUESS.find(g => g[1].test(it.title)) || [])[0] || 'other');
+const iconOf = (it, kind) => kind === 'transport' && /автовокзал|автобус|маршрутк|bus/i.test(it.title) ? 'bus' : KINDS[kind].icon;
+
+/* категории расходов: цвет закреплён за категорией, а не за её местом в списке */
+const BCATS = [
+  { id: 'lodging', label: 'Жильё', icon: 'bed' },
+  { id: 'food', label: 'Еда', icon: 'food' },
+  { id: 'transport', label: 'Транспорт', icon: 'car' },
+  { id: 'other', label: 'Прочее', icon: 'dot' }
+];
+const bcatOf = k => k === 'lodging' ? 'lodging' : k === 'food' ? 'food' : (k === 'transport' || k === 'arrive' || k === 'flight') ? 'transport' : 'other';
+
+const nf = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+const money = (n, c) => nf.format(n) + (c ? '\u00a0' + c : '');
+
 /* ================= даты (строки YYYY-MM-DD, без часовых поясов) ================= */
 function parseISO(s) { const p = s.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])); }
 function toISO(d) { return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
@@ -194,10 +415,23 @@ function addDays(s, n) { const d = parseISO(s); d.setUTCDate(d.getUTCDate() + n)
 function diffDays(a, b) { return Math.round((parseISO(b) - parseISO(a)) / 864e5); }
 function todayISO() { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 const dayFmt = new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' });
-const rangeFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const rangeFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+const rangeShort = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+const wdLong = new Intl.DateTimeFormat('ru-RU', { weekday: 'long', timeZone: 'UTC' });
+const wdShort = new Intl.DateTimeFormat('ru-RU', { weekday: 'short', timeZone: 'UTC' });
+const monShort = new Intl.DateTimeFormat('ru-RU', { month: 'short', timeZone: 'UTC' });
 const fmtDay = s => cap(dayFmt.format(parseISO(s)));
-const fmtRange = (a, b) => a === b ? rangeFmt.format(parseISO(a))
-  : rangeFmt.format(parseISO(a)) + ' – ' + rangeFmt.format(parseISO(b));
+const dnum = s => parseISO(s).getUTCDate();
+const dmon = s => monShort.format(parseISO(s)).replace('.', '');
+function fmtRange(a, b) {
+  if (a === b) return rangeFmt.format(parseISO(a));
+  const A = parseISO(a), B = parseISO(b);
+  if (A.getUTCFullYear() === B.getUTCFullYear()) {
+    if (A.getUTCMonth() === B.getUTCMonth()) return A.getUTCDate() + '–' + rangeFmt.format(B);
+    return rangeShort.format(A) + ' – ' + rangeFmt.format(B);
+  }
+  return rangeFmt.format(A) + ' – ' + rangeFmt.format(B);
+}
 const compact = s => s.replace(/-/g, '');
 
 const mins = t => +t.slice(0, 2) * 60 + +t.slice(3);
@@ -224,9 +458,17 @@ function normTrip(o) {
     id: goodId(o.id) ? o.id : uid(),
     title: s(o.title, 120).trim() || 'Поездка',
     dest: s(o.dest, 120).trim(),
-    start: o.start, end: o.end, people: [], items: [],
+    start: o.start, end: o.end,
+    currency: CURRENCIES.indexOf(o.currency) >= 0 ? o.currency : '₸',
+    labels: {}, people: [], items: [],
     updated: +o.updated || Date.now()
   };
+  if (o.labels && typeof o.labels === 'object') {
+    Object.keys(o.labels).slice(0, MAX_DAYS + 20).forEach(k => {
+      const v = s(o.labels[k], 60).trim();
+      if (validDate(k) && v) t.labels[k] = v;
+    });
+  }
   (Array.isArray(o.people) ? o.people : []).slice(0, MAX_PEOPLE).forEach(p => {
     if (!p || typeof p !== 'object') return;
     const email = typeof p.email === 'string' && emailRe.test(p.email) && p.email.length <= 120 ? p.email : '';
@@ -238,10 +480,13 @@ function normTrip(o) {
     const title = s(i.title, 120).trim();
     if (!title) return;
     const time = timeRe.test(i.time) ? i.time : '';
+    const c = Number(i.cost);
     t.items.push({
       id: goodId(i.id) ? i.id : uid(), date: i.date, time,
       end: time && timeRe.test(i.end) ? i.end : '',
-      title, place: s(i.place, 160).trim(), note: s(i.note, 600).trim()
+      title, place: s(i.place, 160).trim(), note: s(i.note, 600).trim(),
+      cost: isFinite(c) && c > 0 && c <= MAX_COST ? Math.round(c * 100) / 100 : 0,
+      kind: own(KINDS, i.kind) ? i.kind : ''
     });
   });
   return t;
@@ -265,13 +510,38 @@ function tripDays(t) {
   return [...set].sort();
 }
 const inRange = (t, d) => d >= t.start && d <= t.end;
-function dayItems(t, d) {                       // «весь день» сверху, дальше по времени
-  return t.items.filter(i => i.date === d).map((i, n) => [i, n])
-    .sort((a, b) => a[0].time.localeCompare(b[0].time) || a[1] - b[1]).map(x => x[0]);
+/* По времени. Пункт без времени встаёт сразу после предыдущего пункта (как строки в таблице);
+   если он первый в дне, то идёт в начале. */
+function dayItems(t, d) {
+  let last = '';
+  const arr = t.items.filter(i => i.date === d).map((i, n) => {
+    if (i.time) last = i.time;
+    return { i, n, key: i.time || last };
+  });
+  arr.sort((a, b) => a.key.localeCompare(b.key) || a.n - b.n);
+  return arr.map(x => x.i);
+}
+/* Пункт, который целиком проходит внутри другого (обед во время школы), показываем вложенным. */
+function parentsOf(its) {
+  const map = new Map();
+  its.forEach((it, idx) => {
+    if (!it.time) return;
+    const s = mins(it.time), e = it.end && mins(it.end) > s ? mins(it.end) : s;
+    for (let j = idx - 1; j >= 0; j--) {
+      const p = its[j];
+      if (!p.time || !p.end || mins(p.end) <= mins(p.time) || map.has(p)) continue;
+      if (mins(p.time) <= s && s < mins(p.end) && e <= mins(p.end)) { map.set(it, p); break; }
+    }
+  });
+  return map;
 }
 const guestsOf = t => t.people.map(p => p.email).filter(Boolean);
 const mapsUrl = (t, place) => 'https://www.google.com/maps/search/?api=1&query=' +
-  encodeURIComponent(t.dest && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
+  encodeURIComponent(t.dest && place.indexOf(',') < 0 && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
+
+const dayTotal = (t, d) => t.items.reduce((s, i) => i.date === d ? s + i.cost : s, 0);
+const totalCost = t => t.items.reduce((s, i) => s + i.cost, 0);
+function tripLength(t) { return diffDays(t.start, t.end) + 1; }
 
 function summary(t) {
   const out = [];
@@ -279,7 +549,7 @@ function summary(t) {
   tripDays(t).forEach(d => {
     const its = dayItems(t, d);
     if (!its.length) return;
-    out.push('', fmtDay(d));
+    out.push('', fmtDay(d) + (t.labels[d] ? ' — ' + t.labels[d] : ''));
     its.forEach(i => out.push((i.time ? i.time + ' ' : '') + i.title + (i.place ? ' — ' + i.place : '')));
   });
   return out.join('\n');
@@ -385,25 +655,81 @@ async function unpack(str) {
   return JSON.parse(new TextDecoder().decode(raw));
 }
 // e-mail участников в ссылку не попадают — только имена
-const packTrip = t => ({ v: 1, k: t.id, t: t.title, d: t.dest, s: t.start, e: t.end,
-  p: t.people.map(p => p.name), i: t.items.map(i => [i.id, i.date, i.time, i.end, i.title, i.place, i.note]) });
-const unpackTrip = o => !o || o.v !== 1 ? null : normTrip({
-  id: o.k, title: o.t, dest: o.d, start: o.s, end: o.e,
+const packTrip = t => ({ v: 2, k: t.id, t: t.title, d: t.dest, s: t.start, e: t.end, c: t.currency, l: t.labels,
+  p: t.people.map(p => p.name),
+  i: t.items.map(i => [i.id, i.date, i.time, i.end, i.title, i.place, i.note, i.cost, i.kind]) });
+const unpackTrip = o => !o || (o.v !== 1 && o.v !== 2) ? null : normTrip({
+  id: o.k, title: o.t, dest: o.d, start: o.s, end: o.e, currency: o.c, labels: o.l,
   people: (Array.isArray(o.p) ? o.p : []).map(n => ({ name: n, email: '' })),
   items: (Array.isArray(o.i) ? o.i : []).map(a => Array.isArray(a)
-    ? { id: a[0], date: a[1], time: a[2], end: a[3], title: a[4], place: a[5], note: a[6] } : null)
+    ? { id: a[0], date: a[1], time: a[2], end: a[3], title: a[4], place: a[5], note: a[6], cost: a[7], kind: a[8] } : null)
 });
 const baseUrl = () => location.href.split('#')[0];
 
+/* ================= пример: поездка из таблицы ================= */
+const SAMPLE_ID = 'almaty-bishkek';
+function sampleTrip() {
+  const D = ['2026-12-11', '2026-12-12', '2026-12-13', '2026-12-14', '2026-12-15'];
+  const H = 'Salamat hostel, Бишкек';
+  let n = 0;
+  const it = (d, time, end, title, kind, cost, place, note) => ({ id: 's' + (++n), date: D[d], time: time || '', end: end || '',
+    title, kind, cost: cost || 0, place: place || '', note: note || '' });
+  return normTrip({
+    id: SAMPLE_ID, title: 'Алматы – Бишкек', dest: 'Алматы, Бишкек', start: D[0], end: D[4], currency: '₸',
+    labels: { [D[0]]: 'Прилёт в Алматы', [D[1]]: 'Алматы → Бишкек', [D[2]]: 'Бишкек', [D[3]]: 'Бишкек → Алматы', [D[4]]: 'Домой' },
+    people: [],
+    items: [
+      it(0, '13:30', '', 'Аэропортта болу', 'flight', 0, '', 'Доверенность, паспорт, куәлік'),
+      it(0, '18:00', '', 'Алматы', 'arrive'),
+      it(0, '19:00', '', 'Алматы квартира орналасу', 'lodging', 4500, '', '30 мың'),
+      it(0, '19:30', '', 'Ужин', 'food', 5000),
+      it(0, '', '', 'Қыдыру Mega', 'walk'),
+      it(0, '', '', 'Такси', 'transport', 2000),
+      it(0, '22:00', '', 'Отбой', 'rest'),
+
+      it(1, '10:30', '', 'Завтрак', 'food', 3500),
+      it(1, '11:00', '13:00', 'Қалада қыдыру', 'walk'),
+      it(1, '13:30', '', 'Обед собой алып кету', 'food', 3000),
+      it(1, '14:00', '17:55', 'Автовокзал', 'transport'),
+      it(1, '18:30', '', 'Бишкек', 'arrive'),
+      it(1, '', '', 'Гостиница орналасу', 'lodging', 8000, H),
+      it(1, '', '', 'Такси', 'transport', 3000),
+      it(1, '', '', 'Ужин', 'food', 5000),
+
+      it(2, '08:00', '', 'Завтрак', 'food', 3500),
+      it(2, '10:00', '17:00', 'Maarif school', 'work'),
+      it(2, '13:00', '14:00', 'Обед, Maarif', 'food', 5000),
+      it(2, '17:00', '18:00', 'Гостиница', 'lodging', 8000, H),
+      it(2, '18:30', '20:00', 'Ужин', 'food', 5000),
+      it(2, '20:00', '22:00', 'Қыдыру', 'walk'),
+      it(2, '', '', 'Такси', 'transport', 3000),
+
+      it(3, '08:00', '', 'Завтрак', 'food', 3500),
+      it(3, '10:00', '17:00', 'Maarif school', 'work'),
+      it(3, '13:00', '14:00', 'Обед', 'food', 5000),
+      it(3, '17:00', '', 'Автовокзал', 'transport', 8000),
+      it(3, '22:00', '', 'Алматы', 'arrive', 5000),
+      it(3, '', '', 'Такси, хавчик', 'transport', 5000),
+
+      it(4, '08:00', '', 'Завтрак', 'food', 5000),
+      it(4, '13:00', '', 'Обед', 'food', 5000),
+      it(4, '17:00', '', 'Аэропорт', 'flight'),
+      it(4, '', '', 'Такси', 'transport', 2000),
+      it(4, '18:00', '20:50', 'Самолёт', 'flight')
+    ]
+  });
+}
+
 /* ================= отрисовка ================= */
 const ui = { editing: null };
-let cur = null, els = {}, shareLink = '', shareTok = 0, routeTok = 0;
+let cur = null, els = {}, shareLink = '', shareTok = 0, routeTok = 0, spy = null;
 
 function setBack(on) { $('#back').classList.toggle('hide', !on); }
 
 function route() {
   const hs = location.hash, my = ++routeTok;
   ui.editing = null; cur = null; els = {};
+  if (spy) { spy.disconnect(); spy = null; }
   window.scrollTo(0, 0);
   if (hs.indexOf('#s=') === 0) return openShared(hs.slice(3), my);
   if (hs.indexOf('#trip=') === 0) {
@@ -416,29 +742,240 @@ function route() {
 }
 
 /* ---- список поездок ---- */
+function whenChip(t) {
+  const td = todayISO(), n = tripLength(t);
+  if (td < t.start) { const k = diffDays(td, t.start); return { text: 'через ' + k + ' ' + plural(k, 'день', 'дня', 'дней'), cls: 'soon' }; }
+  if (td <= t.end) return { text: 'идёт: день ' + (diffDays(t.start, td) + 1) + ' из ' + n, cls: 'now' };
+  return { text: 'поездка прошла', cls: 'past' };
+}
 function openList() {
   document.title = 'Планировщик поездок';
   setBack(false);
   const today = todayISO();
   const up = state.trips.filter(t => t.end >= today).sort((a, b) => a.start.localeCompare(b.start));
   const past = state.trips.filter(t => t.end < today).sort((a, b) => b.start.localeCompare(a.start));
-  const card = t => h('a', { class: 'tcard', href: '#trip=' + encodeURIComponent(t.id) },
-    h('b', {}, t.title), h('span', {}, [t.dest, fmtRange(t.start, t.end)].filter(Boolean).join(' · ')),
-    h('br'), h('span', {}, 'Едут: ' + (t.people.length ? t.people.length : 'пока только вы') +
-      ' · пунктов в плане: ' + t.items.length));
+  const card = t => {
+    const total = totalCost(t);
+    return h('a', { class: 'tcard', href: '#trip=' + encodeURIComponent(t.id) },
+      h('b', {}, t.title),
+      h('span', {}, [t.dest, fmtRange(t.start, t.end)].filter(Boolean).join(' · ')),
+      h('div', { class: 'tc-meta' },
+        h('span', {}, whenChip(t).text),
+        h('span', {}, t.items.length + ' ' + plural(t.items.length, 'пункт', 'пункта', 'пунктов')),
+        total > 0 && h('strong', {}, money(total, t.currency)),
+        t.people.length > 0 && h('span', {}, 'едут: ' + t.people.length)));
+  };
+  const sample = !state.trips.some(t => t.id === SAMPLE_ID) && h('div', { class: 'panel sample' },
+    h('div', {}, h('b', {}, 'План из вашей таблицы: Алматы – Бишкек'),
+      h('span', {}, '11–15 декабря · 5 дней · расходы 97 000 ₸')),
+    h('button', { class: 'btn primary', onclick: addSample }, 'Добавить в мои поездки'));
   show(
     h('div', { class: 'head' },
       h('div', {}, h('h1', {}, 'Мои поездки'),
         h('p', { class: 'sub' }, 'Составьте план и отправьте ссылку попутчикам')),
       h('button', { class: 'btn primary', onclick: newTrip }, '+ Новая поездка')),
-    state.trips.length ? [up.map(card), past.length > 0 && h('p', { class: 'muted' }, 'Прошедшие'), past.map(card)]
-      : h('div', { class: 'empty' }, 'Пока нет поездок. Создайте первую: укажите даты, добавьте план по дням и тех, кто едет с вами.'));
+    up.length > 0 && h('div', { class: 'tgrid' }, up.map(card)),
+    past.length > 0 && [h('p', { class: 'group' }, 'Прошедшие'), h('div', { class: 'tgrid' }, past.map(card))],
+    !state.trips.length && h('div', { class: 'panel' }, h('p', { class: 'lead', style: 'margin:0' },
+      'Пока нет поездок. Создайте первую: укажите даты, добавьте план по дням и тех, кто едет с вами.')),
+    sample);
 }
 function newTrip() {
   const s = todayISO();
-  const t = { id: uid(), title: 'Новая поездка', dest: '', start: s, end: addDays(s, 2), people: [], items: [], updated: Date.now() };
+  const t = { id: uid(), title: 'Новая поездка', dest: '', start: s, end: addDays(s, 2), currency: '₸', labels: {}, people: [], items: [], updated: Date.now() };
   state.trips.push(t); save();
   location.hash = '#trip=' + encodeURIComponent(t.id);
+}
+function addSample() {
+  const t = sampleTrip();
+  state.trips.push(t); save();
+  location.hash = '#trip=' + encodeURIComponent(t.id);
+}
+
+/* ---- общие блоки: шапка, расходы, полоса дней ---- */
+function renderHero(box, t) {
+  const n = tripLength(t), total = totalCost(t), chip = whenChip(t), stops = routeStops(t), items = t.items.length;
+  box.replaceChildren();
+  append(box, [
+    raw(RIDGE),
+    h('div', { class: 'eyebrow' }, 'Поездка · ' + n + ' ' + plural(n, 'день', 'дня', 'дней')),
+    h('h1', {}, t.title),
+    t.dest && t.dest !== t.title && h('p', { class: 'where' }, t.dest),
+    h('p', { class: 'when' }, h('span', {}, fmtRange(t.start, t.end)), h('span', { class: 'cd ' + chip.cls }, chip.text)),
+    stops.length > 1 && h('div', { class: 'route', 'aria-label': 'Маршрут' }, stops.map((s, i) => [
+      i > 0 && h('span', { class: 'rlink', 'aria-hidden': 'true' }),
+      h('div', { class: 'stop' }, h('i', { class: 'dot' }), h('b', {}, s.name), h('small', {}, dnum(s.date) + ' ' + dmon(s.date)))])),
+    h('div', { class: 'stats' },
+      h('div', { class: 'stat' }, h('b', {}, items), h('span', {}, plural(items, 'пункт', 'пункта', 'пунктов') + ' в плане')),
+      total > 0 && h('div', { class: 'stat' }, h('b', {}, money(total, t.currency)), h('span', {}, 'расходы всего'))),
+    t.people.length > 0 && h('div', { class: 'who' },
+      h('div', { class: 'avs' }, t.people.slice(0, 6).map((p, i) => h('span', { class: 'av k' + (i % 2), title: p.name }, initials(p.name)))),
+      h('small', {}, 'Едут: ' + t.people.map(p => p.name).join(', ')))
+  ]);
+}
+const initials = name => name.trim().split(/\s+/).slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('') || '?';
+function routeStops(t) {
+  const out = [];
+  tripDays(t).forEach(d => dayItems(t, d).forEach(i => {
+    if (kindOf(i) !== 'arrive') return;
+    const prev = out[out.length - 1];
+    if (!prev || prev.name !== i.title) out.push({ name: i.title, date: d });
+  }));
+  return out;
+}
+
+function renderBudget(box, t) {
+  const total = totalCost(t), sums = {};
+  BCATS.forEach(c => { sums[c.id] = 0; });
+  t.items.forEach(i => { if (i.cost) sums[bcatOf(kindOf(i))] += i.cost; });
+  const rows = BCATS.map((c, k) => ({ c, k, sum: sums[c.id] })).filter(r => r.sum > 0);
+  const perDay = Math.round(total / tripLength(t));
+  const pct = r => Math.round(r.sum / total * 100) + '%';
+  box.replaceChildren();
+  box.append(h('section', { class: 'panel' },
+    h('h2', {}, 'Расходы'),
+    total > 0 ? [
+      h('div', { class: 'total' }, nf.format(total), t.currency && h('small', {}, t.currency)),
+      h('p', { class: 'muted', style: 'margin:4px 0 0' }, '≈ ' + money(perDay, t.currency) + ' в день'),
+      h('div', { class: 'bar', role: 'img',
+        'aria-label': 'Расходы по категориям: ' + rows.map(r => r.c.label + ' ' + money(r.sum, t.currency) + ' (' + pct(r) + ')').join(', ') },
+        rows.map(r => h('i', { class: 'v' + (r.k + 1), style: 'flex:' + r.sum + ' 1 0', title: r.c.label + ': ' + money(r.sum, t.currency) }))),
+      h('ul', { class: 'legend' }, rows.map(r => h('li', {},
+        h('i', { class: 'sw v' + (r.k + 1) }),
+        h('span', { class: 'nm' }, ico(r.c.icon), r.c.label),
+        h('span', {}, money(r.sum, t.currency)),
+        h('span', { class: 'pc' }, pct(r)))))
+    ] : h('p', { class: 'muted', style: 'margin:0' }, 'Укажите расход у пунктов плана: здесь появится итог и разбивка по категориям.')));
+}
+
+function renderNav(box, t) {
+  const days = tripDays(t), totals = days.map(d => dayTotal(t, d)), max = Math.max(1, ...totals), td = todayISO();
+  box.replaceChildren();
+  box.append(h('div', { class: 'strip-in', role: 'group', 'aria-label': 'Дни поездки' }, days.map((d, k) => h('button', {
+    type: 'button', class: 'dchip ' + (k % 2 ? 'b' : 'a') + (d === td ? ' today' : ''), 'data-day': d,
+    onclick: () => { const el = document.getElementById('day-' + d); if (el) el.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' }); } },
+    h('span', { class: 'dn' }, inRange(t, d) ? 'День ' + (diffDays(t.start, d) + 1) : 'вне дат'),
+    h('b', {}, cap(wdShort.format(parseISO(d)).replace('.', '')) + ', ' + dnum(d) + ' ' + dmon(d)),
+    h('span', { class: 'da' }, totals[k] ? money(totals[k], t.currency) : '—'),
+    totals[k] > 0 && h('i', { class: 'dbar', style: 'width:' + Math.max(6, Math.round(totals[k] / max * 100)) + '%' })))));
+}
+function watchDays() {
+  if (spy) { spy.disconnect(); spy = null; }
+  if (!('IntersectionObserver' in window)) return;
+  spy = new IntersectionObserver(entries => entries.forEach(e => {
+    if (!e.isIntersecting) return;
+    document.querySelectorAll('.dchip').forEach(c => {
+      const on = c.dataset.day === e.target.dataset.day;
+      c.classList.toggle('on', on);
+      if (on) {
+        c.setAttribute('aria-current', 'true');
+        const row = c.parentNode;
+        row.scrollTo({ left: c.offsetLeft - (row.clientWidth - c.offsetWidth) / 2, behavior: reduced() ? 'auto' : 'smooth' });
+      } else c.removeAttribute('aria-current');
+    });
+  }), { rootMargin: '-25% 0px -65% 0px' });
+  document.querySelectorAll('.day').forEach(d => spy.observe(d));
+}
+
+/* ---- дни и пункты ---- */
+function renderDays(box, t, edit) {
+  box.replaceChildren();
+  tripDays(t).forEach((d, k) => {
+    const its = dayItems(t, d), parents = parentsOf(its);
+    const adding = edit && ui.editing && !ui.editing.id && ui.editing.date === d;
+    const total = dayTotal(t, d);
+    const n = inRange(t, d) ? diffDays(t.start, d) + 1 : 0;
+    let title;
+    if (edit) {
+      title = h('input', { class: 'dlabel', maxlength: 60, placeholder: 'Название дня, например город', 'aria-label': 'Название дня ' + fmtDay(d), value: t.labels[d] || '' });
+      title.addEventListener('input', () => { const v = title.value.trim(); if (v) t.labels[d] = v; else delete t.labels[d]; persist(); });
+    } else if (t.labels[d]) title = h('h3', {}, t.labels[d]);
+    const sub = cap(wdLong.format(parseISO(d))) + (n ? ' · день ' + n + ' из ' + tripLength(t) : '');
+    const sec = h('section', { class: 'day ' + (k % 2 ? 'b' : 'a'), id: 'day-' + d, 'data-day': d },
+      h('div', { class: 'dh' },
+        h('div', { class: 'dtile' }, h('b', {}, dnum(d)), h('span', {}, dmon(d))),
+        h('div', { class: 'dtitle' }, title, h('div', { class: 'dsub' + (n ? '' : ' warn') }, n ? sub : sub + ' · вне дат поездки')),
+        total > 0 && h('span', { class: 'dsum' }, money(total, t.currency))));
+    const rows = its.map(it => edit && ui.editing && ui.editing.id === it.id
+      ? h('li', { class: 'itf' }, itemForm(t, it, d)) : itemRow(t, it, edit, parents.get(it)));
+    if (adding) rows.push(h('li', { class: 'itf' }, itemForm(t, null, d)));
+    if (rows.length) sec.append(h('ul', { class: 'tl' }, rows));
+    else sec.append(h('p', { class: 'free' }, edit ? 'Пока пусто' : 'Планов нет'));
+    if (edit && !adding) sec.append(h('button', { class: 'btn tiny ghost addit', onclick: () => { ui.editing = { id: null, date: d }; renderPlan(); } }, '+ Добавить пункт'));
+    box.append(sec);
+  });
+}
+function renderPlan() { renderDays(els.plan, cur, true); watchDays(); }
+function refresh() { renderHero(els.hero, cur); renderBudget(els.budget, cur); renderNav(els.nav, cur); renderPlan(); }
+
+function itemRow(t, it, edit, parent) {
+  const kind = kindOf(it), guests = edit ? guestsOf(t) : [];
+  const hasEnd = it.time && it.end && mins(it.end) > mins(it.time);
+  const more = h('button', { class: 'more', type: 'button', 'aria-expanded': 'false', 'aria-label': 'Действия: ' + it.title,
+    onclick: () => { const on = row.classList.toggle('open'); more.setAttribute('aria-expanded', String(on)); } }, '⋯');
+  const row = h('li', { class: 'it' + (parent ? ' nested' : '') },
+    h('div', { class: 'tm' + (it.time ? '' : ' none') }, it.time ? [it.time, hasEnd && h('small', {}, '–' + it.end)] : '—'),
+    h('div', { class: 'bd' }, ico(iconOf(it, kind))),
+    h('div', { class: 'ib' },
+      h('div', { class: 'ititle' }, h('span', { class: 'sr' }, KINDS[kind].label + ': '), it.title),
+      parent && h('div', { class: 'inside' }, 'во время «' + parent.title + '»'),
+      it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place), target: '_blank', rel: 'noopener' }, ico('pin'), ' ' + it.place)),
+      it.note && h('span', { class: 'tag' }, it.note),
+      h('div', { class: 'acts' },
+        h('a', { class: 'btn tiny ghost', target: '_blank', rel: 'noopener', href: itemGcal(t, it, guests),
+          title: guests.length ? 'Откроется Google Календарь с приглашёнными участниками' : 'Откроется Google Календарь' }, 'В календарь'),
+        edit && h('button', { class: 'btn tiny ghost', onclick: () => { ui.editing = { id: it.id }; renderPlan(); } }, 'Изменить'),
+        edit && h('button', { class: 'btn tiny ghost danger', onclick: () => {
+          if (!confirm('Удалить «' + it.title + '»?')) return;
+          t.items = t.items.filter(x => x !== it); persist(); refresh();
+        } }, 'Удалить'))),
+    h('div', { class: 'cost' }, it.cost > 0 && [nf.format(it.cost), t.currency && h('small', {}, t.currency)]),
+    more);
+  return row;
+}
+
+function itemForm(t, it, date) {
+  const fDay = h('select', { class: 'inp sm' }, tripDays(t).map(d => h('option', { value: d }, fmtDay(d))));
+  fDay.value = it ? it.date : date;
+  const fStart = h('input', { class: 'inp sm', type: 'time', value: it ? it.time : '' });
+  const fEnd = h('input', { class: 'inp sm', type: 'time', value: it ? it.end : '' });
+  const fTitle = h('input', { class: 'inp sm', maxlength: 120, placeholder: 'Например: Музей Прадо', value: it ? it.title : '' });
+  const fPlace = h('input', { class: 'inp sm', maxlength: 160, placeholder: 'Адрес или название места', value: it ? it.place : '' });
+  const fCost = h('input', { class: 'inp sm', type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: '0', value: it && it.cost ? it.cost : '' });
+  const fKind = h('select', { class: 'inp sm' }, h('option', { value: '' }, 'Определить по названию'),
+    Object.keys(KINDS).map(k => h('option', { value: k }, KINDS[k].label)));
+  fKind.value = it ? it.kind : '';
+  const fNote = h('textarea', { class: 'inp sm', rows: 2, maxlength: 600, placeholder: 'Билеты, бронь, где встречаемся…', value: it ? it.note : '' });
+  const form = h('form', { class: 'iform', onsubmit: e => {
+    e.preventDefault();
+    const title = fTitle.value.trim();
+    if (!title) { toast('Введите название пункта', true); fTitle.focus(); return; }
+    const cost = fCost.value.trim() === '' ? 0 : Number(fCost.value.replace(',', '.'));
+    if (!isFinite(cost) || cost < 0 || cost > MAX_COST) { toast('Расход — число не меньше нуля', true); fCost.focus(); return; }
+    if (!it && t.items.length >= MAX_ITEMS) { toast('Слишком много пунктов в плане', true); return; }
+    const time = fStart.value;
+    const vals = { date: fDay.value, time, end: time ? fEnd.value : '', title, place: fPlace.value.trim(), note: fNote.value.trim(),
+      cost: Math.round(cost * 100) / 100, kind: fKind.value };
+    if (it) Object.assign(it, vals); else t.items.push(Object.assign({ id: uid() }, vals));
+    ui.editing = null; persist(); refresh();
+  } },
+    h('label', { class: 'field' }, h('span', {}, 'Что делаем'), fTitle),
+    h('div', { class: 'grid2' },
+      h('label', { class: 'field' }, h('span', {}, 'День'), fDay),
+      h('div', { class: 'grid2 times', style: 'margin:0' },
+        h('label', { class: 'field' }, h('span', {}, 'Начало'), fStart),
+        h('label', { class: 'field' }, h('span', {}, 'Конец'), fEnd))),
+    h('p', { class: 'muted', style: 'margin:-4px 0 10px' }, 'Без времени пункт встаёт сразу после предыдущего.'),
+    h('div', { class: 'grid2' },
+      h('label', { class: 'field' }, h('span', {}, 'Расход' + (t.currency ? ', ' + t.currency : '')), fCost),
+      h('label', { class: 'field' }, h('span', {}, 'Тип (значок)'), fKind)),
+    h('label', { class: 'field' }, h('span', {}, 'Место'), fPlace),
+    h('label', { class: 'field' }, h('span', {}, 'Заметка'), fNote),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary', type: 'submit' }, it ? 'Сохранить' : 'Добавить'),
+      h('button', { class: 'btn', type: 'button', onclick: () => { ui.editing = null; renderPlan(); } }, 'Отмена')));
+  setTimeout(() => fTitle.focus(), 0);
+  return form;
 }
 
 /* ---- редактор поездки ---- */
@@ -453,8 +990,11 @@ function openTrip(t) {
   const fDest = h('input', { class: 'inp', maxlength: 120, placeholder: 'Город или страна', value: t.dest });
   const fStart = h('input', { class: 'inp', type: 'date', value: t.start });
   const fEnd = h('input', { class: 'inp', type: 'date', value: t.end });
-  fTitle.addEventListener('input', () => { t.title = fTitle.value.trim() || 'Поездка'; document.title = t.title + ' — поездка'; persist(); });
-  fDest.addEventListener('input', () => { t.dest = fDest.value.trim(); persist(); });
+  const fCur = h('select', { class: 'inp' }, CURRENCIES.map(c => h('option', { value: c }, c || 'без валюты')));
+  fCur.value = t.currency;
+  fTitle.addEventListener('input', () => { t.title = fTitle.value.trim() || 'Поездка'; document.title = t.title + ' — поездка'; persist(); renderHero(els.hero, t); });
+  fDest.addEventListener('input', () => { t.dest = fDest.value.trim(); persist(); renderHero(els.hero, t); });
+  fCur.addEventListener('change', () => { t.currency = fCur.value; persist(); refresh(); });
   function dates(which) {
     let s = fStart.value, e = fEnd.value;
     if (!validDate(s) || !validDate(e)) { fStart.value = t.start; fEnd.value = t.end; return; }
@@ -464,30 +1004,35 @@ function openTrip(t) {
       if (which === 'start') e = addDays(s, MAX_DAYS - 1); else s = addDays(e, -(MAX_DAYS - 1));
     }
     t.start = s; t.end = e; fStart.value = s; fEnd.value = e;
-    persist(); renderPlan();
+    persist(); refresh();
   }
   fStart.addEventListener('change', () => dates('start'));
   fEnd.addEventListener('change', () => dates('end'));
 
-  els.people = h('div'); els.plan = h('div');
-  const metaPanel = h('div', { class: 'panel' },
-    h('h2', {}, 'Поездка'),
+  els.hero = h('header', { class: 'hero' }); els.budget = h('div', { class: 'l-budget' });
+  els.nav = h('div', { class: 'strip' }); els.plan = h('div'); els.people = h('div');
+  const settings = h('details', { class: 'panel settings', open: !t.items.length },
+    h('summary', {}, 'Настройки поездки'),
     h('label', { class: 'field' }, h('span', {}, 'Название'), fTitle),
     h('label', { class: 'field' }, h('span', {}, 'Куда'), fDest),
     h('div', { class: 'grid2' },
       h('label', { class: 'field' }, h('span', {}, 'Дата начала'), fStart),
       h('label', { class: 'field' }, h('span', {}, 'Дата конца'), fEnd)),
+    h('label', { class: 'field' }, h('span', {}, 'Валюта расходов'), fCur),
     h('button', { class: 'btn tiny danger', onclick: () => {
       if (!confirm('Удалить поездку «' + t.title + '» вместе с планом? Это нельзя отменить.')) return;
       state.trips = state.trips.filter(x => x !== t); save(); location.hash = '';
     } }, 'Удалить поездку'));
 
   show(
-    metaPanel,
-    h('div', { class: 'panel' }, h('h2', {}, 'Кто едет'), els.people),
-    h('div', { class: 'panel' }, h('h2', {}, 'План по дням'), els.plan),
-    buildSharePanel(t));
-  renderPeople(); renderPlan(); syncShare();
+    els.hero,
+    h('div', { class: 'layout' },
+      els.budget,
+      h('div', { class: 'l-main' }, els.nav, els.plan),
+      h('div', { class: 'l-rest' },
+        h('section', { class: 'panel' }, h('h2', {}, 'Кто едет'), els.people),
+        buildSharePanel(t), settings)));
+  renderPeople(); refresh(); syncShare();
 }
 
 function renderPeople() {
@@ -499,9 +1044,9 @@ function renderPeople() {
     t.people.length ? h('div', { class: 'chips' }, t.people.map(p => h('span', { class: 'chip' }, p.name,
       p.email && h('small', {}, p.email),
       h('button', { type: 'button', 'aria-label': 'Убрать ' + p.name, onclick: () => {
-        t.people = t.people.filter(x => x !== p); persist(); renderPeople(); renderPlan();
+        t.people = t.people.filter(x => x !== p); persist(); renderPeople(); refresh();
       } }, '×'))))
-      : h('p', { class: 'free' }, 'Пока никого. Добавьте тех, кто едет с вами.'),
+      : h('p', { class: 'free', style: 'margin-top:0' }, 'Пока никого. Добавьте тех, кто едет с вами.'),
     h('form', { class: 'row', onsubmit: e => {
       e.preventDefault();
       const name = nm.value.trim(), email = em.value.trim();
@@ -510,82 +1055,10 @@ function renderPeople() {
       if (t.people.length >= MAX_PEOPLE) { toast('Слишком много участников', true); return; }
       if (email && t.people.some(p => p.email.toLowerCase() === email.toLowerCase())) { toast('Этот e-mail уже добавлен', true); return; }
       t.people.push({ name: name || email.split('@')[0], email });
-      persist(); renderPeople(); renderPlan();
+      persist(); renderPeople(); refresh();
     } }, nm, em, h('button', { class: 'btn', type: 'submit' }, 'Добавить')),
     h('p', { class: 'muted' }, 'E-mail нужен только для приглашений в Google Календарь. В ссылку для попутчиков он не попадает.')
   ]);
-}
-
-function renderDays(box, t, edit) {
-  box.replaceChildren();
-  const days = tripDays(t);
-  days.forEach(d => {
-    const its = dayItems(t, d);
-    const adding = edit && ui.editing && !ui.editing.id && ui.editing.date === d;
-    const n = inRange(t, d) ? diffDays(t.start, d) + 1 : 0;
-    const sec = h('section', { class: 'day' },
-      h('div', { class: 'dayh' }, h('h3', {}, fmtDay(d)),
-        n ? h('span', { class: 'tag' }, 'День ' + n) : h('span', { class: 'tag warn' }, 'вне дат поездки')));
-    its.forEach(it => sec.append(edit && ui.editing && ui.editing.id === it.id
-      ? itemForm(t, it, d) : itemRow(t, it, edit)));
-    if (!its.length && !adding) sec.append(h('p', { class: 'free' }, edit ? 'Пока пусто' : 'Планов нет'));
-    if (adding) sec.append(itemForm(t, null, d));
-    else if (edit) sec.append(h('button', { class: 'btn tiny', onclick: () => { ui.editing = { id: null, date: d }; renderPlan(); } }, '+ Добавить пункт'));
-    box.append(sec);
-  });
-}
-function renderPlan() { renderDays(els.plan, cur, true); }
-
-function itemRow(t, it, edit) {
-  const when = it.time ? (it.end && mins(it.end) > mins(it.time) ? it.time + '–' + it.end : it.time) : 'весь день';
-  const guests = edit ? guestsOf(t) : [];
-  return h('div', { class: 'item' },
-    h('div', { class: 'when' }, when),
-    h('div', { class: 'ibody' },
-      h('div', { class: 'ititle' }, it.title),
-      it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place), target: '_blank', rel: 'noopener' }, '📍 ' + it.place)),
-      it.note && h('div', { class: 'inote' }, it.note),
-      h('div', { class: 'iacts' },
-        h('a', { class: 'btn tiny', target: '_blank', rel: 'noopener', href: itemGcal(t, it, guests),
-          title: guests.length ? 'Откроется Google Календарь с приглашёнными участниками' : 'Откроется Google Календарь' }, 'В календарь'),
-        edit && h('button', { class: 'btn tiny', onclick: () => { ui.editing = { id: it.id }; renderPlan(); } }, 'Изменить'),
-        edit && h('button', { class: 'btn tiny danger', onclick: () => {
-          if (!confirm('Удалить «' + it.title + '»?')) return;
-          t.items = t.items.filter(x => x !== it); persist(); renderPlan();
-        } }, 'Удалить'))));
-}
-
-function itemForm(t, it, date) {
-  const fDay = h('select', { class: 'inp sm' }, tripDays(t).map(d => h('option', { value: d }, fmtDay(d))));
-  fDay.value = it ? it.date : date;
-  const fStart = h('input', { class: 'inp sm', type: 'time', value: it ? it.time : '' });
-  const fEnd = h('input', { class: 'inp sm', type: 'time', value: it ? it.end : '' });
-  const fTitle = h('input', { class: 'inp sm', maxlength: 120, placeholder: 'Например: Музей Прадо', value: it ? it.title : '' });
-  const fPlace = h('input', { class: 'inp sm', maxlength: 160, placeholder: 'Адрес или название места', value: it ? it.place : '' });
-  const fNote = h('textarea', { class: 'inp sm', rows: 2, maxlength: 600, placeholder: 'Билеты, бронь, где встречаемся…', value: it ? it.note : '' });
-  const form = h('form', { class: 'iform', onsubmit: e => {
-    e.preventDefault();
-    const title = fTitle.value.trim();
-    if (!title) { toast('Введите название пункта', true); fTitle.focus(); return; }
-    if (!it && t.items.length >= MAX_ITEMS) { toast('Слишком много пунктов в плане', true); return; }
-    const time = fStart.value;
-    const vals = { date: fDay.value, time, end: time ? fEnd.value : '', title, place: fPlace.value.trim(), note: fNote.value.trim() };
-    if (it) Object.assign(it, vals); else t.items.push(Object.assign({ id: uid() }, vals));
-    ui.editing = null; persist(); renderPlan();
-  } },
-    h('label', { class: 'field' }, h('span', {}, 'Что делаем'), fTitle),
-    h('div', { class: 'grid2' },
-      h('label', { class: 'field' }, h('span', {}, 'День'), fDay),
-      h('div', { class: 'grid2 times', style: 'margin:0' },
-        h('label', { class: 'field' }, h('span', {}, 'Начало'), fStart),
-        h('label', { class: 'field' }, h('span', {}, 'Конец'), fEnd))),
-    h('label', { class: 'field' }, h('span', {}, 'Место'), fPlace),
-    h('label', { class: 'field' }, h('span', {}, 'Заметка'), fNote),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn primary', type: 'submit' }, it ? 'Сохранить' : 'Добавить'),
-      h('button', { class: 'btn', type: 'button', onclick: () => { ui.editing = null; renderPlan(); } }, 'Отмена')));
-  setTimeout(() => fTitle.focus(), 0);
-  return form;
 }
 
 /* ---- поделиться и календарь ---- */
@@ -665,20 +1138,17 @@ async function openShared(payload, my) {
     return;
   }
   document.title = t.title + ' — план поездки';
-  const plan = h('div');
+  const hero = h('header', { class: 'hero' }), budget = h('div', { class: 'l-budget' }), nav = h('div', { class: 'strip' }), plan = h('div');
   show(
-    h('div', { class: 'head' }, h('div', {}, h('h1', {}, t.title),
-      h('p', { class: 'sub' }, [t.dest, fmtRange(t.start, t.end)].filter(Boolean).join(' · ')))),
+    hero,
     h('div', { class: 'panel banner' },
       h('b', {}, 'Вам прислали план поездки'),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary', onclick: () => importTrip(t) }, 'Сохранить себе'),
         h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: tripGcal(t, []) }, 'В Google Календарь'),
         h('button', { class: 'btn', onclick: () => downloadICS(t) }, 'Скачать .ics'))),
-    t.people.length > 0 && h('div', { class: 'panel' }, h('h2', {}, 'Кто едет'),
-      h('div', { class: 'chips', style: 'margin:0' }, t.people.map(p => h('span', { class: 'chip ro' }, p.name)))),
-    h('div', { class: 'panel' }, h('h2', {}, 'План по дням'), plan));
-  renderDays(plan, t, false);
+    h('div', { class: 'layout' }, budget, h('div', { class: 'l-main' }, nav, plan)));
+  renderHero(hero, t); renderBudget(budget, t); renderNav(nav, t); renderDays(plan, t, false); watchDays();
 }
 function importTrip(t) {
   const i = state.trips.findIndex(x => x.id === t.id);
@@ -692,17 +1162,17 @@ function importTrip(t) {
 }
 
 /* ================= тема и запуск ================= */
-function applyTheme(light) {
-  document.body.classList.toggle('light', light);
-  $('#theme').textContent = light ? 'Тёмная тема' : 'Светлая тема';
-  document.querySelector('meta[name="theme-color"]').content = light ? '#ffffff' : '#16131f';
-  try { localStorage.setItem('habitTheme', light ? 'light' : 'dark'); } catch (e) {}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $('#theme').textContent = theme === 'light' ? 'Тёмная тема' : 'Светлая тема';
+  document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#f1f4f3' : '#0d1218';
+  try { localStorage.setItem('habitTheme', theme); } catch (e) {}
 }
-$('#theme').addEventListener('click', () => applyTheme(!document.body.classList.contains('light')));
+$('#theme').addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
 {
-  let saved = null;
-  try { saved = localStorage.getItem('habitTheme'); } catch (e) {}
-  applyTheme(saved ? saved === 'light' : window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+  const t = document.documentElement.dataset.theme;
+  $('#theme').textContent = t === 'light' ? 'Тёмная тема' : 'Светлая тема';
+  document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f1f4f3' : '#0d1218';
 }
 load();
 window.addEventListener('hashchange', route);
