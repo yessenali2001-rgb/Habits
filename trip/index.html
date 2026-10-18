@@ -233,6 +233,8 @@ textarea.inp { resize:vertical; }
 .iform .grid2 { margin-bottom:10px; }
 .iform .row { margin-top:4px; }
 .addit { margin:2px 0 4px; }
+.addday { width:100%; border-style:dashed; margin-bottom:16px; }
+.editdates { margin:10px 0 0 -9px; }
 
 /* ---------- прочее ---------- */
 .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
@@ -793,7 +795,7 @@ function addSample() {
 }
 
 /* ---- общие блоки: шапка, расходы, полоса дней ---- */
-function renderHero(box, t) {
+function renderHero(box, t, edit) {
   const n = tripLength(t), total = totalCost(t), chip = whenChip(t), stops = routeStops(t), items = t.items.length;
   box.replaceChildren();
   append(box, [
@@ -802,6 +804,7 @@ function renderHero(box, t) {
     h('h1', {}, t.title),
     t.dest && t.dest !== t.title && h('p', { class: 'where' }, t.dest),
     h('p', { class: 'when' }, h('span', {}, fmtRange(t.start, t.end)), h('span', { class: 'cd ' + chip.cls }, chip.text)),
+    edit && h('button', { class: 'btn tiny ghost editdates', type: 'button', onclick: openSettings }, 'Изменить название и даты'),
     stops.length > 1 && h('div', { class: 'route', 'aria-label': 'Маршрут' }, stops.map((s, i) => [
       i > 0 && h('span', { class: 'rlink', 'aria-hidden': 'true' }),
       h('div', { class: 'stop' }, h('i', { class: 'dot' }), h('b', {}, s.name), h('small', {}, dnum(s.date) + ' ' + dmon(s.date)))])),
@@ -904,9 +907,25 @@ function renderDays(box, t, edit) {
     if (edit && !adding) sec.append(h('button', { class: 'btn tiny ghost addit', onclick: () => { ui.editing = { id: null, date: d }; renderPlan(); } }, '+ Добавить пункт'));
     box.append(sec);
   });
+  if (edit) box.append(h('button', { class: 'btn addday', type: 'button', onclick: addDay }, '+ Добавить день'));
 }
 function renderPlan() { renderDays(els.plan, cur, true); watchDays(); }
-function refresh() { renderHero(els.hero, cur); renderBudget(els.budget, cur); renderNav(els.nav, cur); renderPlan(); }
+function openSettings() {
+  if (!els.settings) return;
+  els.settings.open = true;
+  els.settings.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
+  if (els.fEnd) els.fEnd.focus({ preventScroll: true });
+}
+function addDay() {
+  const t = cur;
+  if (tripLength(t) >= MAX_DAYS) { toast('Поездка не может быть длиннее ' + MAX_DAYS + ' дней', true); return; }
+  t.end = addDays(t.end, 1);
+  if (els.fEnd) els.fEnd.value = t.end;
+  persist(); refresh();
+  const el = document.getElementById('day-' + t.end);
+  if (el) el.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
+}
+function refresh() { renderHero(els.hero, cur, true); renderBudget(els.budget, cur); renderNav(els.nav, cur); renderPlan(); }
 
 function itemRow(t, it, edit, parent) {
   const kind = kindOf(it), guests = edit ? guestsOf(t) : [];
@@ -992,8 +1011,8 @@ function openTrip(t) {
   const fEnd = h('input', { class: 'inp', type: 'date', value: t.end });
   const fCur = h('select', { class: 'inp' }, CURRENCIES.map(c => h('option', { value: c }, c || 'без валюты')));
   fCur.value = t.currency;
-  fTitle.addEventListener('input', () => { t.title = fTitle.value.trim() || 'Поездка'; document.title = t.title + ' — поездка'; persist(); renderHero(els.hero, t); });
-  fDest.addEventListener('input', () => { t.dest = fDest.value.trim(); persist(); renderHero(els.hero, t); });
+  fTitle.addEventListener('input', () => { t.title = fTitle.value.trim() || 'Поездка'; document.title = t.title + ' — поездка'; persist(); renderHero(els.hero, t, true); });
+  fDest.addEventListener('input', () => { t.dest = fDest.value.trim(); persist(); renderHero(els.hero, t, true); });
   fCur.addEventListener('change', () => { t.currency = fCur.value; persist(); refresh(); });
   function dates(which) {
     let s = fStart.value, e = fEnd.value;
@@ -1010,7 +1029,7 @@ function openTrip(t) {
   fEnd.addEventListener('change', () => dates('end'));
 
   els.hero = h('header', { class: 'hero' }); els.budget = h('div', { class: 'l-budget' });
-  els.nav = h('div', { class: 'strip' }); els.plan = h('div'); els.people = h('div');
+  els.nav = h('div', { class: 'strip' }); els.plan = h('div'); els.people = h('div'); els.fEnd = fEnd;
   const settings = h('details', { class: 'panel settings', open: !t.items.length },
     h('summary', {}, 'Настройки поездки'),
     h('label', { class: 'field' }, h('span', {}, 'Название'), fTitle),
@@ -1024,14 +1043,18 @@ function openTrip(t) {
       state.trips = state.trips.filter(x => x !== t); save(); location.hash = '';
     } }, 'Удалить поездку'));
 
+  els.settings = settings;
+  const settingsOnTop = !t.items.length;        // у новой поездки даты видны сразу
+  if (settingsOnTop) settings.setAttribute('style', 'margin-bottom:18px');
   show(
     els.hero,
+    settingsOnTop && settings,
     h('div', { class: 'layout' },
       els.budget,
       h('div', { class: 'l-main' }, els.nav, els.plan),
       h('div', { class: 'l-rest' },
         h('section', { class: 'panel' }, h('h2', {}, 'Кто едет'), els.people),
-        buildSharePanel(t), settings)));
+        buildSharePanel(t), !settingsOnTop && settings)));
   renderPeople(); refresh(); syncShare();
 }
 
