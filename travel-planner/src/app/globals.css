@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+/* dark mode is opt-in via a class on <html> (light is the default) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #f5f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --fg: #0f172a;
+  --muted: #566274;
+  --line: #e1e6ed;
+  --brand: #0f766e;
+  --brand-hover: #0b5f58;
+  --brand-fg: #ffffff;
+  --brand-soft: #d8f2ee;
+  --brand-soft-fg: #0a4d47;
+  --accent: #e07b2c;
+  --danger: #c0312c;
+  --danger-soft: #fde7e6;
+  --warn: #9a5200;
+  --warn-soft: #fff1d6;
+  --ok: #166534;
+  --ok-soft: #dcf5e4;
+  --shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 4px 16px rgb(15 23 42 / 0.05);
+}
+
+.dark {
+  --bg: #0b1117;
+  --surface: #121a23;
+  --surface-2: #19232f;
+  --fg: #e8edf3;
+  --muted: #98a6b8;
+  --line: #243241;
+  --brand: #2dd4bf;
+  --brand-hover: #5eead4;
+  --brand-fg: #04201d;
+  --brand-soft: #0f2f2c;
+  --brand-soft-fg: #99f6e4;
+  --accent: #f59e4b;
+  --danger: #ff8a85;
+  --danger-soft: #3a1a19;
+  --warn: #fbbf24;
+  --warn-soft: #3a2a0b;
+  --ok: #4ade80;
+  --ok-soft: #0f2e1a;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.3);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-soft-fg: var(--brand-soft-fg);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --shadow-card: var(--shadow);
+}
+
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--brand-soft); color: var(--brand-soft-fg); }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+dialog { color: var(--fg); }
+dialog::backdrop { background: rgb(8 15 25 / 0.55); backdrop-filter: blur(2px); }
+
+@media (prefers-reduced-motion: reduce) { *, ::before, ::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+
+/* FullCalendar picks up the theme */
+.fc { --fc-border-color: var(--line); --fc-page-bg-color: var(--surface); --fc-neutral-bg-color: var(--surface-2);
+  --fc-list-event-hover-bg-color: var(--surface-2); --fc-today-bg-color: color-mix(in srgb, var(--brand) 9%, transparent);
+  --fc-event-border-color: transparent; --fc-now-indicator-color: var(--danger); font-size: 0.875rem; }
+.fc .fc-toolbar-title { font-size: 1.05rem; font-weight: 650; }
+.fc .fc-button { background: var(--surface); border: 1px solid var(--line); color: var(--fg); text-transform: capitalize; box-shadow: none; }
+.fc .fc-button:hover { background: var(--surface-2); border-color: var(--line); color: var(--fg); }
+.fc .fc-button-primary:not(:disabled).fc-button-active, .fc .fc-button-primary:not(:disabled):active { background: var(--brand); border-color: var(--brand); color: var(--brand-fg); }
+.fc .fc-button:focus { box-shadow: 0 0 0 2px var(--brand); }
+.fc-theme-standard .fc-scrollgrid { border-radius: 0.75rem; overflow: hidden; }
+.fc-event { cursor: pointer; }
+
+/* Leaflet popups follow the theme */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--fg); }
+.leaflet-container { font-family: var(--font-sans); background: var(--surface-2); }
+.wp-pin { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9999px; color: #fff; font-weight: 700; font-size: 12px;
+  border: 2px solid #fff; box-shadow: 0 1px 4px rgb(0 0 0 / .4); }
+
+/* Chart colors — validated with the dataviz validator against both surfaces (one-hue ordinal ramp, ≥2:1 vs surface). */
+:root { --viz-1: #2a78d6; --viz-2: #86b6ef; }
+.dark { --viz-1: #3987e5; --viz-2: #1c5cab; }
