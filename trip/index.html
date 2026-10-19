@@ -152,6 +152,8 @@ textarea.inp { resize:vertical; }
 .stop .dot { width:11px; height:11px; border-radius:50%; background:#ffd479; margin-bottom:5px; box-shadow:0 0 0 3px rgba(255,212,121,.35); }
 .stop b { font-weight:600; }
 .stop small { font-size:12px; }
+.stop .sd { font-weight:600; margin-top:2px; }
+.stop .sd:empty { display:none; }
 .rlink { flex:1 1 36px; min-width:14px; border-top:2px dashed rgba(255,255,255,.75); margin:0 8px; }
 .stats { display:flex; flex-wrap:wrap; gap:10px 32px; margin-top:24px; }
 .stat b { display:block; font-family:var(--f-display); font-weight:600; font-size:20px; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
@@ -231,6 +233,18 @@ textarea.inp { resize:vertical; }
 .dlabel::placeholder { font-weight:400; color:#fff; opacity:.8; }
 .dlabel:focus-visible { outline-color:#fff; outline-offset:3px; }
 .free { color:var(--muted); font-size:14px; margin:6px 0 10px; }
+.it.leg { padding:0 0 3px; }
+.leg .ldot { width:10px; height:10px; border-radius:50%; background:var(--surface); border:2px solid var(--g2); align-self:start; justify-self:center; margin-top:8px;
+  position:relative; z-index:1; box-shadow:0 0 0 4px var(--surface); }
+.leg .lbody { grid-column:3 / -1; min-width:0; padding:2px 0; }
+.legpill { display:inline-flex; align-items:center; font-size:12.5px; font-weight:600; padding:3px 10px; border-radius:99px; background:var(--surface2);
+  font-variant-numeric:tabular-nums; }
+.legpill.busy { color:var(--muted); font-weight:500; }
+.leg a, .leg .lnk { font-size:12.5px; margin-left:10px; color:var(--accent-tx); }
+.leg .lnk { background:none; border:0; padding:0; text-decoration:underline; }
+.legname { display:block; font-size:11.5px; color:var(--muted); margin-top:2px; overflow-wrap:anywhere; }
+.dres { margin-top:12px; }
+.dr b { display:block; margin-bottom:2px; overflow-wrap:anywhere; }
 
 .tl { list-style:none; margin:0; padding:0; }
 .it { --tc:60px; --bc:36px; --gp:10px; position:relative; display:grid; grid-template-columns:var(--tc) var(--bc) minmax(0, 1fr) auto 28px;
@@ -308,7 +322,9 @@ textarea.inp { resize:vertical; }
   .hero::before { right:6%; bottom:58px; width:84px; height:84px; }
   .stop { padding:7px 10px 7px 10px; }
   .stop b { font-size:14px; }
-  .rlink { margin:0 5px; }
+  .route { flex-wrap:wrap; row-gap:10px; }
+  .rlink { display:none; }
+  .route { gap:8px; }
   .inp, .inp.sm { font-size:16px; padding:12px 13px; }   /* 16px не даёт iOS зумить */
   .btn { padding:12px 16px; }
   .btn.tiny { padding:8px 12px; }
@@ -768,6 +784,129 @@ function sampleTrip() {
   });
 }
 
+/* ================= расстояния: Photon (поиск места) + OSRM (маршрут по дорогам), оба на данных OpenStreetMap ================= */
+const GEO_KEY = 'tripGeo.v1', LEG_KEY = 'tripLegs.v1';
+let geoCache = {}, legCache = {}, geoQueue = Promise.resolve();
+const geoPending = {}, legPending = {};
+function loadCache(key) { try { const o = JSON.parse(localStorage.getItem(key)); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
+function saveCache(key, o) {
+  try {
+    const ks = Object.keys(o);
+    if (ks.length > 400) ks.slice(0, 200).forEach(k => { delete o[k]; });
+    localStorage.setItem(key, JSON.stringify(o));
+  } catch (e) {}
+}
+geoCache = loadCache(GEO_KEY); legCache = loadCache(LEG_KEY);
+
+async function fetchJson(url) {
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), 9000);
+  try {
+    const r = await fetch(url, { signal: c.signal });
+    if (!r.ok) throw new Error('http ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(tm); }
+}
+const okPoint = (lat, lon) => isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+const sleep = ms => new Promise(res => setTimeout(res, ms));
+async function fetchJsonRetry(url, retries) {
+  for (let i = 0; ; i++) {
+    try { return await fetchJson(url); }
+    catch (e) { if (i >= retries) throw e; await sleep(700); }
+  }
+}
+/* Три источника по очереди: Photon (места и адреса), Nominatim, Open-Meteo (только города). Бесплатные сервисы иногда отвечают с перебоями. */
+async function fetchGeo(q) {
+  const enc = encodeURIComponent(q);
+  try {
+    const j = await fetchJsonRetry('https://photon.komoot.io/api/?limit=1&q=' + enc, 1);
+    const f = j && j.features && j.features[0];
+    if (!f) return null;
+    const c = f.geometry && f.geometry.coordinates, pr = f.properties || {};
+    const lon = Number(c && c[0]), lat = Number(c && c[1]);
+    if (!okPoint(lat, lon)) return null;
+    const name = [pr.name || [pr.street, pr.housenumber].filter(Boolean).join(' '), pr.city || pr.state].filter(Boolean).join(', ');
+    return { lat, lon, name: (name || q).slice(0, 90) };
+  } catch (e) { /* пробуем следующий */ }
+  try {
+    const j = await fetchJson('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + enc);
+    const f = Array.isArray(j) ? j[0] : null;
+    if (!f) return null;
+    const lat = Number(f.lat), lon = Number(f.lon);
+    if (!okPoint(lat, lon)) return null;
+    return { lat, lon, name: String(f.display_name || q).split(',').slice(0, 2).join(',').slice(0, 90) };
+  } catch (e) { /* пробуем следующий */ }
+  const j = await fetchJson('https://geocoding-api.open-meteo.com/v1/search?count=1&language=ru&name=' + enc);
+  const f = j && j.results && j.results[0];
+  if (!f) return null;
+  const lat = Number(f.latitude), lon = Number(f.longitude);
+  if (!okPoint(lat, lon)) return null;
+  return { lat, lon, name: [f.name, f.country].filter(Boolean).join(', ').slice(0, 90) };
+}
+/* Запросы идут по одному с паузой — так просят вести себя бесплатные сервисы. Ответы запоминаются в браузере. */
+function geocode(q) {
+  q = q.trim();
+  const key = q.toLowerCase();
+  if (own(geoCache, key)) return Promise.resolve(geoCache[key]);
+  if (own(geoPending, key)) return geoPending[key];
+  const job = geoQueue.then(() => fetchGeo(q)).then(r => { geoCache[key] = r; saveCache(GEO_KEY, geoCache); return r; });
+  geoPending[key] = job;
+  const done = () => { delete geoPending[key]; };
+  job.then(done, done);
+  geoQueue = job.catch(() => {}).then(() => new Promise(res => setTimeout(res, 400)));
+  return job;
+}
+function haversine(a, b) {
+  const R = 6371000, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h2 = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h2));
+}
+async function roadRoute(a, b) {
+  const key = [a.lat, a.lon, b.lat, b.lon].map(x => x.toFixed(4)).join(',');
+  if (own(legCache, key)) return legCache[key];
+  try {
+    const j = await fetchJson('https://router.project-osrm.org/route/v1/driving/' + a.lon + ',' + a.lat + ';' + b.lon + ',' + b.lat + '?overview=false');
+    const r = j && j.code === 'Ok' && j.routes && j.routes[0];
+    if (r && isFinite(r.distance) && isFinite(r.duration)) {
+      legCache[key] = { m: r.distance, s: r.duration };
+      saveCache(LEG_KEY, legCache);
+      return legCache[key];
+    }
+  } catch (e) {}
+  return null;                                 // не получилось: по прямой покажем, но не запоминаем
+}
+/* Расстояние между двумя местами, заданными текстом. */
+function legInfo(a, b) {
+  const key = a.trim().toLowerCase() + '|' + b.trim().toLowerCase();
+  if (own(legPending, key)) return legPending[key];
+  const job = (async () => {
+    const pa = await geocode(a), pb = await geocode(b);
+    if (!pa) return { missing: a };
+    if (!pb) return { missing: b };
+    const line = haversine(pa, pb), road = await roadRoute(pa, pb);
+    return { pa, pb, line, road: !!road, m: road ? road.m : line, s: road ? road.s : 0 };
+  })();
+  legPending[key] = job;
+  const done = () => { delete legPending[key]; };
+  job.then(done, done);
+  return job;
+}
+function fmtKm(m) {
+  if (m < 1000) return Math.max(10, Math.round(m / 10) * 10) + ' м';
+  return nf.format(m < 10000 ? Math.round(m / 100) / 10 : Math.round(m / 1000)) + ' км';
+}
+function fmtDur(sec) {
+  const m = Math.max(1, Math.round(sec / 60));
+  return m < 60 ? m + ' мин' : Math.floor(m / 60) + ' ч' + (m % 60 ? ' ' + (m % 60) + ' мин' : '');
+}
+const legText = i => i.road ? '≈ ' + fmtKm(i.m) + ' · ' + fmtDur(i.s) : '≈ ' + fmtKm(i.m) + ' по прямой';
+const dirUrl = (a, b) => 'https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=' + encodeURIComponent(a) + '&destination=' + encodeURIComponent(b);
+function placesOf(t) {
+  const set = new Set();
+  t.items.forEach(i => { const p = i.place || (kindOf(i) === 'arrive' ? i.title : ''); if (p) set.add(p); });
+  return [...set].slice(0, 40);
+}
+
 /* ================= отрисовка ================= */
 const ui = { editing: null };
 let cur = null, els = {}, shareLink = '', shareTok = 0, routeTok = 0, spy = null;
@@ -853,7 +992,8 @@ function renderHero(box, t, edit) {
     edit && h('button', { class: 'btn tiny ghost editdates', type: 'button', onclick: openSettings }, 'Изменить название и даты'),
     stops.length > 1 && h('div', { class: 'route', 'aria-label': 'Маршрут' }, stops.map((s, i) => [
       i > 0 && h('span', { class: 'rlink', 'aria-hidden': 'true' }),
-      h('div', { class: 'stop' }, h('i', { class: 'dot' }), h('b', {}, s.name), h('small', {}, dnum(s.date) + ' ' + dmon(s.date)))])),
+      h('div', { class: 'stop' }, h('i', { class: 'dot' }), h('b', {}, s.name), h('small', {}, dnum(s.date) + ' ' + dmon(s.date)),
+        i > 0 && h('small', { class: 'sd' }))])),
     h('div', { class: 'stats' },
       h('div', { class: 'stat' }, h('b', {}, items), h('span', {}, plural(items, 'пункт', 'пункта', 'пунктов') + ' в плане')),
       total > 0 && h('div', { class: 'stat' }, h('b', {}, money(total, t.currency)), h('span', {}, 'расходы всего'))),
@@ -861,6 +1001,16 @@ function renderHero(box, t, edit) {
       h('div', { class: 'avs' }, t.people.slice(0, 6).map((p, i) => h('span', { class: 'av k' + (i % 2), title: p.name }, initials(p.name)))),
       h('small', {}, 'Едут: ' + t.people.map(p => p.name).join(', ')))
   ]);
+  box.querySelectorAll('.stop .sd').forEach((el, k) => {          // расстояние от предыдущей остановки
+    const a = stops[k].name, b = stops[k + 1].name;
+    el.textContent = 'считаем…';
+    legInfo(a, b).then(i => {
+      if (!el.isConnected) return;
+      if (i.missing) { el.textContent = ''; return; }
+      el.textContent = legText(i);
+      el.title = 'От «' + a + '» до «' + b + '»' + (i.road ? ': по дорогам, без остановок и очереди на границе' : ': по прямой');
+    }, () => { if (el.isConnected) el.textContent = ''; });
+  });
 }
 const initials = name => name.trim().split(/\s+/).slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('') || '?';
 function routeStops(t) {
@@ -945,8 +1095,16 @@ function renderDays(box, t, edit) {
         h('div', { class: 'dtile' }, h('b', {}, dnum(d)), h('span', {}, dmon(d))),
         h('div', { class: 'dtitle' }, title, h('div', { class: 'dsub' + (n ? '' : ' warn') }, n ? sub : sub + ' · вне дат поездки')),
         total > 0 && h('span', { class: 'dsum' }, money(total, t.currency))));
-    const rows = its.map(it => edit && ui.editing && ui.editing.id === it.id
-      ? h('li', { class: 'itf' }, itemForm(t, it, d)) : itemRow(t, it, edit, parents.get(it)));
+    const rows = [];
+    let prev = null;
+    its.forEach(it => {
+      if (it.place) {
+        if (prev && prev.place.trim().toLowerCase() !== it.place.trim().toLowerCase()) rows.push(legRow(prev, it));
+        prev = it;
+      }
+      rows.push(edit && ui.editing && ui.editing.id === it.id
+        ? h('li', { class: 'itf' }, itemForm(t, it, d)) : itemRow(t, it, edit, parents.get(it)));
+    });
     if (adding) rows.push(h('li', { class: 'itf' }, itemForm(t, null, d)));
     if (rows.length) sec.append(h('ul', { class: 'tl' }, rows));
     else sec.append(h('p', { class: 'free' }, edit ? 'Пока пусто' : 'Планов нет'));
@@ -972,6 +1130,25 @@ function addDay() {
   if (el) el.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
 }
 function refresh() { renderHero(els.hero, cur, true); renderBudget(els.budget, cur); renderNav(els.nav, cur); renderPlan(); }
+
+function legRow(a, b) {
+  const body = h('div', { class: 'lbody' });
+  const dir = h('a', { href: dirUrl(a.place, b.place), target: '_blank', rel: 'noopener' }, 'Маршрут');
+  const run = () => {
+    body.replaceChildren(h('span', { class: 'legpill busy' }, 'считаем расстояние…'));
+    legInfo(a.place, b.place).then(i => {
+      if (i.missing) {
+        body.replaceChildren(h('span', { class: 'legpill busy' }, 'место не найдено на карте: «' + i.missing + '»'), dir);
+        return;
+      }
+      body.replaceChildren(h('span', { class: 'legpill' }, legText(i)), dir,
+        h('span', { class: 'legname' }, 'от «' + a.place + '» · на карте: «' + i.pa.name + '» → «' + i.pb.name + '»'));
+    }, () => body.replaceChildren(h('span', { class: 'legpill busy' }, 'не удалось посчитать'),
+      h('button', { class: 'lnk', type: 'button', onclick: run }, 'повторить'), dir));
+  };
+  run();
+  return h('li', { class: 'it leg' }, h('div'), h('i', { class: 'ldot' }), body);
+}
 
 function itemRow(t, it, edit, parent) {
   const kind = kindOf(it), guests = edit ? guestsOf(t) : [];
@@ -1100,6 +1277,7 @@ function openTrip(t) {
       h('div', { class: 'l-main' }, els.nav, els.plan),
       h('div', { class: 'l-rest' },
         h('section', { class: 'panel' }, h('h2', {}, 'Кто едет'), els.people),
+        buildDistPanel(t),
         buildSharePanel(t), !settingsOnTop && settings)));
   renderPeople(); refresh(); syncShare();
 }
@@ -1128,6 +1306,42 @@ function renderPeople() {
     } }, nm, em, h('button', { class: 'btn', type: 'submit' }, 'Добавить')),
     h('p', { class: 'muted' }, 'E-mail нужен только для приглашений в Google Календарь. В ссылку для попутчиков он не попадает.')
   ]);
+}
+
+/* ---- расстояние между двумя местами ---- */
+function buildDistPanel(t) {
+  const list = h('datalist', { id: 'places-list' });
+  const fillList = () => { list.replaceChildren(); placesOf(t).forEach(p => list.append(h('option', { value: p }))); };
+  fillList();
+  const mk = (ph, label) => h('input', { class: 'inp sm', maxlength: 160, list: 'places-list', autocomplete: 'off', placeholder: ph, 'aria-label': label });
+  const fA = mk('Например: Алматы', 'Откуда'), fB = mk('Например: Бишкек', 'Куда');
+  fA.addEventListener('focus', fillList); fB.addEventListener('focus', fillList);
+  const out = h('div', { class: 'dres', 'aria-live': 'polite' });
+  const say = (...kids) => out.replaceChildren(...kids);
+  async function go() {
+    const a = fA.value.trim(), b = fB.value.trim();
+    if (!a || !b) { say(h('p', { class: 'muted' }, 'Укажите оба места.')); return; }
+    if (a.toLowerCase() === b.toLowerCase()) { say(h('p', { class: 'muted' }, 'Это одно и то же место.')); return; }
+    say(h('p', { class: 'muted' }, 'Считаем…'));
+    let i;
+    try { i = await legInfo(a, b); }
+    catch (e) { say(h('p', { class: 'muted' }, 'Не удалось связаться с картой. Проверьте интернет и попробуйте ещё раз.')); return; }
+    if (i.missing) { say(h('p', { class: 'muted' }, 'Не нашли на карте: «' + i.missing + '». Уточните название, например добавьте город.')); return; }
+    say(h('div', { class: 'dr' },
+      h('b', {}, a + ' → ' + b),
+      i.road ? h('div', {}, 'По дороге: ' + fmtKm(i.m) + ' · ' + fmtDur(i.s))
+        : h('div', {}, 'Маршрут по дорогам не построился. По прямой: ' + fmtKm(i.line)),
+      i.road && h('div', { class: 'muted', style: 'margin:2px 0 0' }, 'По прямой: ' + fmtKm(i.line)),
+      h('div', { class: 'muted', style: 'margin:2px 0 8px' }, 'На карте найдено: «' + i.pa.name + '» → «' + i.pb.name + '»'),
+      h('a', { href: dirUrl(a, b), target: '_blank', rel: 'noopener' }, 'Открыть маршрут в Google Maps')));
+  }
+  return h('section', { class: 'panel' }, h('h2', {}, 'Расстояние между местами'), list,
+    h('form', { onsubmit: e => { e.preventDefault(); go(); } },
+      h('label', { class: 'field' }, h('span', {}, 'Откуда'), fA),
+      h('label', { class: 'field' }, h('span', {}, 'Куда'), fB),
+      h('button', { class: 'btn primary', type: 'submit' }, 'Посчитать')),
+    out,
+    h('p', { class: 'muted' }, 'Расстояние считают открытые сервисы на данных OpenStreetMap (Photon, Nominatim, Open-Meteo и OSRM), им отправляются названия мест. Если нашлось не то место, уточните название: добавьте улицу и город. Время приблизительное: без пробок, остановок и очереди на границе. Такие же расстояния показаны между соседними местами плана и между городами в шапке.'));
 }
 
 /* ---- поделиться и календарь ---- */
