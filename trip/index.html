@@ -28,7 +28,7 @@ try {
   --bad:#c62d3a; --ok:#17744c; --warn:#9a5400;
   --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100;
   --k-flight:#6d3fd3; --k-arrive:#138a62; --k-transport:#138a62; --k-lodging:#2a78d6; --k-food:#d9531e;
-  --k-walk:#c0357f; --k-work:#a86a00; --k-rest:#5b55b8; --k-other:#5d6b86;
+  --k-walk:#c0357f; --k-work:#a86a00; --k-rest:#5b55b8; --k-other:#5d6b86; --k-idea:#0b7a94;
   --page:linear-gradient(180deg, #e3edff 0%, #f4ecfb 48%, #fff1e4 100%);
   --shadow:0 1px 2px rgba(20,33,61,.06), 0 16px 34px -20px rgba(60,50,140,.38);
   --f-display:"Unbounded", "Onest", ui-sans-serif, system-ui, sans-serif;
@@ -43,7 +43,7 @@ try {
     --bad:#ff8f9a; --ok:#5fd3a0; --warn:#ffc65c;
     --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
     --k-flight:#b79bff; --k-arrive:#4fd9a6; --k-transport:#4fd9a6; --k-lodging:#6aa8f5; --k-food:#ff9a6b;
-    --k-walk:#ff8fc4; --k-work:#ffc65c; --k-rest:#aeb0ff; --k-other:#a8b4cf;
+    --k-walk:#ff8fc4; --k-work:#ffc65c; --k-rest:#aeb0ff; --k-other:#a8b4cf; --k-idea:#5fd0ea;
     --page:radial-gradient(900px 520px at 85% -8%, rgba(139,92,246,.32), transparent 62%),
       radial-gradient(760px 520px at -8% 28%, rgba(20,184,166,.22), transparent 60%),
       radial-gradient(700px 500px at 60% 105%, rgba(244,114,94,.18), transparent 60%);
@@ -58,7 +58,7 @@ try {
   --bad:#ff8f9a; --ok:#5fd3a0; --warn:#ffc65c;
   --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
   --k-flight:#b79bff; --k-arrive:#4fd9a6; --k-transport:#4fd9a6; --k-lodging:#6aa8f5; --k-food:#ff9a6b;
-  --k-walk:#ff8fc4; --k-work:#ffc65c; --k-rest:#aeb0ff; --k-other:#a8b4cf;
+  --k-walk:#ff8fc4; --k-work:#ffc65c; --k-rest:#aeb0ff; --k-other:#a8b4cf; --k-idea:#5fd0ea;
   --page:radial-gradient(900px 520px at 85% -8%, rgba(139,92,246,.32), transparent 62%),
     radial-gradient(760px 520px at -8% 28%, rgba(20,184,166,.22), transparent 60%),
     radial-gradient(700px 500px at 60% 105%, rgba(244,114,94,.18), transparent 60%);
@@ -90,7 +90,7 @@ a { color:var(--accent-tx); }
 /* цвета типов пунктов */
 .k-flight { --kc:var(--k-flight); } .k-arrive { --kc:var(--k-arrive); } .k-transport { --kc:var(--k-transport); }
 .k-lodging { --kc:var(--k-lodging); } .k-food { --kc:var(--k-food); } .k-walk { --kc:var(--k-walk); }
-.k-work { --kc:var(--k-work); } .k-rest { --kc:var(--k-rest); } .k-other { --kc:var(--k-other); }
+.k-work { --kc:var(--k-work); } .k-rest { --kc:var(--k-rest); } .k-other { --kc:var(--k-other); } .k-idea { --kc:var(--k-idea); }
 
 .topbar { display:flex; align-items:center; gap:12px; margin-bottom:16px; min-height:36px; }
 .topbar .back { font-size:14px; text-decoration:none; color:var(--muted); }
@@ -428,6 +428,7 @@ const ICONS = {
   compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>',
   cap: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  bulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/>',
   dot: '<circle cx="12" cy="12" r="3"/>'
 };
 function ico(name) {
@@ -449,6 +450,7 @@ const KINDS = {
   walk: { label: 'Прогулка', icon: 'compass' },
   work: { label: 'Дела', icon: 'cap' },
   rest: { label: 'Отдых', icon: 'moon' },
+  idea: { label: 'Идея', icon: 'bulb' },
   other: { label: 'Другое', icon: 'dot' }
 };
 const GUESS = [
@@ -956,11 +958,29 @@ function astanaTrip() {
       it(2, '14:30', '16:30', 'Cardiff University Kazakhstan', 'work', 0, '', 'Сығанақ көшесі 38/1, Астана', 1),
       it(3, '19:35', '22:05', 'Рейс IQ 385: Астана → Актобе', 'flight', 0, 'Бронь 4TJC26 · эконом · регистрация до 18:35', '', 2),
       it(3, '22:05', '', 'Актобе', 'arrive')
-    ]
+    ].concat(astanaIdeas(D))
   });
 }
+/* Идеи на окошки между встречами. Расстояния посчитаны по карте и примерные; часы работы и афишу нужно проверить. Номера id начинаются с «idea». */
+function astanaIdeas(D) {
+  let n = 0;
+  const idea = (d, time, title, note, place, conf, kind) => ({ id: 'idea' + (++n), date: D[d], time, end: '', title, kind: kind || 'idea',
+    cost: 0, place: place || '', note, conf: conf || 0 });
+  return [
+    idea(0, '13:30', 'Обед в Mega Silk Way', 'Идея на окошко 12:50–14:00: торговый центр рядом с ЭКСПО, 0,8 км от Astana IT University. Дорога из аэропорта займёт время, возможно хватит только на быстрый обед.', 'Mega Silk Way, Астана'),
+    idea(0, '15:30', 'Кофе и прогулка по ЭКСПО', 'Идея на окошко 15:30–16:00: оба университета на ЭКСПО, можно посмотреть шар «Нур Алем» снаружи.'),
+    idea(0, '18:00', 'Байтерек и бульвар Нұржол', 'Идея на вечер: в конце октября темнеет рано, на бульваре красивая подсветка. Хан Шатыр рядом, там можно погреться.', 'Монумент Байтерек, Астана'),
+    idea(1, '12:35', 'Обед в Хан Шатыре', 'Идея на окошко 12:30–14:00: примерно 3,4 км от Coventry (около 5 минут на такси) и 5,4 км до Maqsut Narikbayev (около 8 минут). На обед хватает часа.', 'Хан Шатыр, Астана'),
+    idea(1, '16:30', 'Мечеть Хазрет Султан', 'Идея на вечер после 15:30: часы посещения проверьте заранее, оденьтесь скромно.'),
+    idea(1, '19:00', 'Кино', 'Идея на вечер: афишу кинотеатров в торговом центре посмотрите заранее. Когда купите билеты, поставьте галочку.', '', 1),
+    idea(2, '12:40', 'Обед в Mega Silk Way', 'Идея на окошко 12:30–14:30: 0,6 км от Nazarbayev University, от университета до Cardiff около 11 минут на такси. Если останется время, загляните к шару «Нур Алем» на ЭКСПО, часы работы проверьте.', 'Mega Silk Way, Астана'),
+    idea(2, '17:00', 'Хан Шатыр после Cardiff', 'Идея на вечер: от Cardiff всего 0,8 км, внутри тепло. Потом можно съездить к Байтереку, это 2,5 км.', 'Хан Шатыр, Астана'),
+    idea(3, '10:00', 'Сувениры и Национальный музей Казахстана', 'Идея на свободный день: музею нужно 2–3 часа, часы работы проверьте. Ручная кладь только 7 кг, следите за весом покупок.'),
+    idea(3, '17:00', 'Выехать в аэропорт', 'Идея по времени: регистрация на рейс заканчивается в 18:35, на дорогу и запас лучше выехать около 17:00.', '', 0, 'transport')
+  ];
+}
 const SAMPLES = [
-  { id: 'astana', title: 'Билет Актобе – Астана – Актобе', note: '28–31 октября · 2 рейса · 6 университетов', build: astanaTrip },
+  { id: 'astana', title: 'Билет Актобе – Астана – Актобе', note: '28–31 октября · 2 рейса · 6 университетов · идеи на окошки', build: astanaTrip },
   { id: SAMPLE_ID, title: 'План из вашей таблицы: Алматы – Бишкек', note: '11–15 декабря · 5 дней · расходы 97 000 ₸', build: sampleTrip }
 ];
 
@@ -1012,6 +1032,12 @@ function openList() {
   const sample = SAMPLES.filter(sp => !state.trips.some(t => t.id === sp.id)).map(sp => h('div', { class: 'panel sample', 'data-id': sp.id },
     h('div', {}, h('b', {}, sp.title), h('span', {}, sp.note)),
     h('button', { class: 'btn primary', onclick: () => addSample(sp.id) }, 'Добавить в мои поездки')));
+  const mine = state.trips.find(t => t.id === 'astana');
+  const missing = mine ? astanaTrip().items.filter(i => /^idea/.test(i.id) && !mine.items.some(x => x.id === i.id)) : [];
+  const ideasCard = missing.length > 0 && h('div', { class: 'panel sample', 'data-id': 'astana-ideas' },
+    h('div', {}, h('b', {}, 'Идеи на окошки для «Астаны»'),
+      h('span', {}, missing.length + ' ' + plural(missing.length, 'идея', 'идеи', 'идей') + ': обеды, прогулки, вечера. Добавятся в вашу поездку, остальное не изменится')),
+    h('button', { class: 'btn primary', onclick: () => addAstanaIdeas() }, 'Добавить в «Астану»'));
   show(
     h('div', { class: 'head' },
       h('div', {}, h('h1', {}, 'Мои поездки'),
@@ -1021,13 +1047,21 @@ function openList() {
     past.length > 0 && [h('p', { class: 'group' }, 'Прошедшие'), h('div', { class: 'tgrid' }, past.map((t, i) => card(t, up.length + i)))],
     !state.trips.length && h('div', { class: 'panel' }, h('p', { class: 'lead', style: 'margin:0' },
       'Пока нет поездок. Создайте первую: укажите даты, добавьте план по дням и тех, кто едет с вами.')),
-    sample);
+    ideasCard, sample);
 }
 function newTrip() {
   const s = todayISO();
   const t = { id: uid(), title: 'Новая поездка', dest: '', start: s, end: addDays(s, 2), currency: '₸', labels: {}, people: [], items: [], updated: Date.now() };
   state.trips.push(t); save();
   location.hash = '#trip=' + encodeURIComponent(t.id);
+}
+function addAstanaIdeas() {
+  const mine = state.trips.find(t => t.id === 'astana');
+  if (!mine) return;
+  const add = astanaTrip().items.filter(i => /^idea/.test(i.id) && !mine.items.some(x => x.id === i.id));
+  mine.items.push(...add.slice(0, Math.max(0, MAX_ITEMS - mine.items.length)));
+  mine.updated = Date.now(); save();
+  location.hash = '#trip=' + encodeURIComponent(mine.id);
 }
 function addSample(id) {
   const t = SAMPLES.find(sp => sp.id === id).build();
