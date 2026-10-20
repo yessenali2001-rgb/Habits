@@ -25,7 +25,7 @@ try {
   --bg:#eef3fb; --bg-a:rgba(238,243,251,.9); --surface:#ffffff; --surface2:#f1f4fa; --line:#dde5f2; --line2:#c3cfe4;
   --tx:#14213d; --muted:#55627d;
   --accent:#4f46e5; --accent2:#7c3aed; --accent-ink:#ffffff; --accent-tx:#4338ca;
-  --bad:#c62d3a;
+  --bad:#c62d3a; --ok:#17744c; --warn:#9a5400;
   --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100;
   --k-flight:#6d3fd3; --k-arrive:#138a62; --k-transport:#138a62; --k-lodging:#2a78d6; --k-food:#d9531e;
   --k-walk:#c0357f; --k-work:#a86a00; --k-rest:#5b55b8; --k-other:#5d6b86;
@@ -40,7 +40,7 @@ try {
     --bg:#0b1020; --bg-a:rgba(11,16,32,.88); --surface:#131b33; --surface2:#1a2442; --line:#26335a; --line2:#3a4a7c;
     --tx:#eaf0ff; --muted:#9aa8cc;
     --accent:#8b8cff; --accent2:#c084fc; --accent-ink:#0b1020; --accent-tx:#aab0ff;
-    --bad:#ff8f9a;
+    --bad:#ff8f9a; --ok:#5fd3a0; --warn:#ffc65c;
     --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
     --k-flight:#b79bff; --k-arrive:#4fd9a6; --k-transport:#4fd9a6; --k-lodging:#6aa8f5; --k-food:#ff9a6b;
     --k-walk:#ff8fc4; --k-work:#ffc65c; --k-rest:#aeb0ff; --k-other:#a8b4cf;
@@ -55,7 +55,7 @@ try {
   --bg:#0b1020; --bg-a:rgba(11,16,32,.88); --surface:#131b33; --surface2:#1a2442; --line:#26335a; --line2:#3a4a7c;
   --tx:#eaf0ff; --muted:#9aa8cc;
   --accent:#8b8cff; --accent2:#c084fc; --accent-ink:#0b1020; --accent-tx:#aab0ff;
-  --bad:#ff8f9a;
+  --bad:#ff8f9a; --ok:#5fd3a0; --warn:#ffc65c;
   --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
   --k-flight:#b79bff; --k-arrive:#4fd9a6; --k-transport:#4fd9a6; --k-lodging:#6aa8f5; --k-food:#ff9a6b;
   --k-walk:#ff8fc4; --k-work:#ffc65c; --k-rest:#aeb0ff; --k-other:#a8b4cf;
@@ -268,6 +268,10 @@ textarea.inp { resize:vertical; }
 .iplace a { color:var(--muted); text-decoration:none; }
 .iplace a:hover { color:var(--accent-tx); text-decoration:underline; }
 .tag { display:inline-block; margin:5px 6px 0 0; font-size:12.5px; background:var(--surface2); color:var(--muted); border-radius:8px; padding:2px 9px; overflow-wrap:anywhere; }
+.conf { display:inline-flex; align-items:center; gap:8px; margin-top:6px; font-size:13px; font-weight:600; color:var(--warn); cursor:pointer; }
+.conf.yes { color:var(--ok); }
+.conf input { width:18px; height:18px; margin:0; accent-color:var(--ok); }
+.conf input:disabled { cursor:default; }
 .inside { font-size:12.5px; color:var(--muted); margin-top:2px; overflow-wrap:anywhere; }
 .cost { padding-top:7px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; font-size:14px; text-align:right; }
 .cost small { color:var(--muted); font-weight:500; margin-left:3px; }
@@ -550,7 +554,8 @@ function normTrip(o) {
       end: time && timeRe.test(i.end) ? i.end : '',
       title, place: s(i.place, 160).trim(), note: s(i.note, 600).trim(),
       cost: isFinite(c) && c > 0 && c <= MAX_COST ? Math.round(c * 100) / 100 : 0,
-      kind: own(KINDS, i.kind) ? i.kind : ''
+      kind: own(KINDS, i.kind) ? i.kind : '',
+      conf: [0, 1, 2].indexOf(Number(i.conf)) >= 0 ? Number(i.conf) : 0       // 0 не нужно, 1 нужно подтвердить, 2 подтверждено
     });
   });
   return t;
@@ -721,12 +726,12 @@ async function unpack(str) {
 // e-mail участников в ссылку не попадают — только имена
 const packTrip = t => ({ v: 2, k: t.id, t: t.title, d: t.dest, s: t.start, e: t.end, c: t.currency, l: t.labels,
   p: t.people.map(p => p.name),
-  i: t.items.map(i => [i.id, i.date, i.time, i.end, i.title, i.place, i.note, i.cost, i.kind]) });
+  i: t.items.map(i => [i.id, i.date, i.time, i.end, i.title, i.place, i.note, i.cost, i.kind, i.conf]) });
 const unpackTrip = o => !o || (o.v !== 1 && o.v !== 2) ? null : normTrip({
   id: o.k, title: o.t, dest: o.d, start: o.s, end: o.e, currency: o.c, labels: o.l,
   people: (Array.isArray(o.p) ? o.p : []).map(n => ({ name: n, email: '' })),
   items: (Array.isArray(o.i) ? o.i : []).map(a => Array.isArray(a)
-    ? { id: a[0], date: a[1], time: a[2], end: a[3], title: a[4], place: a[5], note: a[6], cost: a[7], kind: a[8] } : null)
+    ? { id: a[0], date: a[1], time: a[2], end: a[3], title: a[4], place: a[5], note: a[6], cost: a[7], kind: a[8], conf: a[9] } : null)
 });
 const baseUrl = () => location.href.split('#')[0];
 
@@ -934,22 +939,22 @@ function placesOf(t) {
 function astanaTrip() {
   const D = ['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31'];
   let n = 0;
-  const it = (d, time, end, title, kind, cost, note, place) => ({ id: 'a' + (++n), date: D[d], time, end: end || '', title, kind, cost: cost || 0, place: place || '', note: note || '' });
+  const it = (d, time, end, title, kind, cost, note, place, conf) => ({ id: 'a' + (++n), date: D[d], time, end: end || '', title, kind, cost: cost || 0, place: place || '', note: note || '', conf: conf || 0 });
   return normTrip({
     id: 'astana', title: 'Астана', dest: 'Актобе – Астана', start: D[0], end: D[3], currency: '₸',
     labels: { [D[0]]: 'Актобе → Астана', [D[3]]: 'Астана → Актобе' },
     people: [],
     items: [
       it(0, '10:35', '12:50', 'Рейс IQ 400: Актобе → Астана', 'flight', 0,
-        'Бронь 4TJC26 · Vietjet Qazaqstan, эконом · ручная кладь 7 кг (56×36×23 см), без багажа · невозвратный, обмен платный · регистрация до 09:35'),
+        'Бронь 4TJC26 · Vietjet Qazaqstan, эконом · ручная кладь 7 кг (56×36×23 см), без багажа · невозвратный, обмен платный · регистрация до 09:35', '', 2),
       it(0, '12:50', '', 'Астана', 'arrive'),
-      it(0, '14:00', '15:30', 'Astana IT University', 'work', 0, '', 'Astana IT University, Астана'),
-      it(0, '16:00', '17:30', 'Qazaq AI Research University', 'work', 0, '', 'ЭКСПО, Астана'),
-      it(1, '10:30', '12:30', 'Coventry University Kazakhstan', 'work', 0, '', 'Қорғалжын тас жолы 13а, Астана'),
-      it(1, '14:00', '15:30', 'Maqsut Narikbayev University', 'work', 0, '', 'Қорғалжын тас жолы 8, Астана'),
-      it(2, '10:30', '12:30', 'Nazarbayev University', 'work', 0, '', 'Nazarbayev University, Астана'),
-      it(2, '14:30', '16:30', 'Cardiff University Kazakhstan', 'work', 0, '', 'Сығанақ көшесі 38/1, Астана'),
-      it(3, '19:35', '22:05', 'Рейс IQ 385: Астана → Актобе', 'flight', 0, 'Бронь 4TJC26 · эконом · регистрация до 18:35'),
+      it(0, '14:00', '15:30', 'Astana IT University', 'work', 0, '', 'Astana IT University, Астана', 1),
+      it(0, '16:00', '17:30', 'Qazaq AI Research University', 'work', 0, '', 'ЭКСПО, Астана', 1),
+      it(1, '10:30', '12:30', 'Coventry University Kazakhstan', 'work', 0, '', 'Қорғалжын тас жолы 13а, Астана', 1),
+      it(1, '14:00', '15:30', 'Maqsut Narikbayev University', 'work', 0, '', 'Қорғалжын тас жолы 8, Астана', 1),
+      it(2, '10:30', '12:30', 'Nazarbayev University', 'work', 0, '', 'Nazarbayev University, Астана', 1),
+      it(2, '14:30', '16:30', 'Cardiff University Kazakhstan', 'work', 0, '', 'Сығанақ көшесі 38/1, Астана', 1),
+      it(3, '19:35', '22:05', 'Рейс IQ 385: Астана → Актобе', 'flight', 0, 'Бронь 4TJC26 · эконом · регистрация до 18:35', '', 2),
       it(3, '22:05', '', 'Актобе', 'arrive')
     ]
   });
@@ -1033,6 +1038,7 @@ function addSample(id) {
 /* ---- общие блоки: шапка, расходы, полоса дней ---- */
 function renderHero(box, t, edit) {
   const n = tripLength(t), total = totalCost(t), chip = whenChip(t), stops = routeStops(t), items = t.items.length;
+  const need = t.items.filter(i => i.conf > 0), done = need.filter(i => i.conf === 2).length;
   box.replaceChildren();
   append(box, [
     raw(RIDGE),
@@ -1047,7 +1053,8 @@ function renderHero(box, t, edit) {
         i > 0 && h('small', { class: 'sd' }))])),
     h('div', { class: 'stats' },
       h('div', { class: 'stat' }, h('b', {}, items), h('span', {}, plural(items, 'пункт', 'пункта', 'пунктов') + ' в плане')),
-      total > 0 && h('div', { class: 'stat' }, h('b', {}, money(total, t.currency)), h('span', {}, 'расходы всего'))),
+      total > 0 && h('div', { class: 'stat' }, h('b', {}, money(total, t.currency)), h('span', {}, 'расходы всего')),
+      need.length > 0 && h('div', { class: 'stat' }, h('b', {}, done + ' из ' + need.length), h('span', {}, 'подтверждено'))),
     t.people.length > 0 && h('div', { class: 'who' },
       h('div', { class: 'avs' }, t.people.slice(0, 6).map((p, i) => h('span', { class: 'av k' + (i % 2), title: p.name }, initials(p.name)))),
       h('small', {}, 'Едут: ' + t.people.map(p => p.name).join(', ')))
@@ -1078,7 +1085,7 @@ function routeStops(t) {
   return out;
 }
 
-function renderBudget(box, t) {
+function renderBudget(box, t, edit) {
   const total = totalCost(t), sums = {};
   BCATS.forEach(c => { sums[c.id] = 0; });
   t.items.forEach(i => { if (i.cost) sums[bcatOf(kindOf(i))] += i.cost; });
@@ -1086,6 +1093,7 @@ function renderBudget(box, t) {
   const perDay = Math.round(total / tripLength(t));
   const pct = r => Math.round(r.sum / total * 100) + '%';
   box.replaceChildren();
+  if (!edit && total === 0) return;               // гостю нечего показывать, пустую рамку не рисуем
   box.append(h('section', { class: 'panel' },
     h('h2', {}, 'Расходы'),
     total > 0 ? [
@@ -1184,7 +1192,7 @@ function addDay() {
   const el = document.getElementById('day-' + t.end);
   if (el) el.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
 }
-function refresh() { renderHero(els.hero, cur, true); renderBudget(els.budget, cur); renderNav(els.nav, cur); renderPlan(); }
+function refresh() { renderHero(els.hero, cur, true); renderBudget(els.budget, cur, true); renderNav(els.nav, cur); renderPlan(); }
 
 function legRow(a, b) {
   const body = h('div', { class: 'lbody' });
@@ -1211,6 +1219,17 @@ function itemRow(t, it, edit, parent) {
   const hasEnd = it.time && it.end && mins(it.end) > mins(it.time);
   const more = h('button', { class: 'more', type: 'button', 'aria-expanded': 'false', 'aria-label': 'Действия: ' + it.title,
     onclick: () => { const on = row.classList.toggle('open'); more.setAttribute('aria-expanded', String(on)); } }, '⋯');
+  const confTxt = h('span', {}, it.conf === 2 ? 'Подтверждено' : 'Не подтверждено');
+  const confLabel = h('label', { class: 'conf' + (it.conf === 2 ? ' yes' : '') });
+  const box = it.conf > 0 && h('input', { type: 'checkbox', checked: it.conf === 2, disabled: !edit,
+    'aria-label': 'Подтверждено: ' + it.title,
+    onchange: () => {                       // обновляем на месте, чтобы не потерять фокус
+      it.conf = box.checked ? 2 : 1;
+      confLabel.classList.toggle('yes', it.conf === 2);
+      confTxt.textContent = it.conf === 2 ? 'Подтверждено' : 'Не подтверждено';
+      persist(); renderHero(els.hero, cur, true);
+    } });
+  if (box) confLabel.append(box, confTxt);
   const row = h('li', { class: 'it' + (parent ? ' nested' : '') },
     h('div', { class: 'tm' + (it.time ? '' : ' none') }, it.time ? [it.time, hasEnd && h('small', {}, '–' + it.end)] : '—'),
     h('div', { class: 'bd k-' + kind }, ico(iconOf(it, kind))),
@@ -1219,6 +1238,7 @@ function itemRow(t, it, edit, parent) {
       parent && h('div', { class: 'inside' }, 'во время «' + parent.title + '»'),
       it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place), target: '_blank', rel: 'noopener' }, ico('pin'), ' ' + it.place)),
       it.note && h('span', { class: 'tag' }, it.note),
+      it.conf > 0 && h('div', {}, confLabel),
       h('div', { class: 'acts' },
         h('a', { class: 'btn tiny ghost', target: '_blank', rel: 'noopener', href: itemGcal(t, it, guests),
           title: guests.length ? 'Откроется Google Календарь с приглашёнными участниками' : 'Откроется Google Календарь' }, 'В календарь'),
@@ -1243,6 +1263,11 @@ function itemForm(t, it, date) {
   const fKind = h('select', { class: 'inp sm' }, h('option', { value: '' }, 'Определить по названию'),
     Object.keys(KINDS).map(k => h('option', { value: k }, KINDS[k].label)));
   fKind.value = it ? it.kind : '';
+  const fConf = h('select', { class: 'inp sm' },
+    h('option', { value: '0' }, 'Не нужно'),
+    h('option', { value: '1' }, 'Нужно подтвердить: договориться, купить билеты, забронировать'),
+    h('option', { value: '2' }, 'Уже подтверждено'));
+  fConf.value = String(it ? it.conf : 0);
   const fNote = h('textarea', { class: 'inp sm', rows: 2, maxlength: 600, placeholder: 'Билеты, бронь, где встречаемся…', value: it ? it.note : '' });
   const form = h('form', { class: 'iform', onsubmit: e => {
     e.preventDefault();
@@ -1253,7 +1278,7 @@ function itemForm(t, it, date) {
     if (!it && t.items.length >= MAX_ITEMS) { toast('Слишком много пунктов в плане', true); return; }
     const time = fStart.value;
     const vals = { date: fDay.value, time, end: time ? fEnd.value : '', title, place: fPlace.value.trim(), note: fNote.value.trim(),
-      cost: Math.round(cost * 100) / 100, kind: fKind.value };
+      cost: Math.round(cost * 100) / 100, kind: fKind.value, conf: Number(fConf.value) };
     if (it) Object.assign(it, vals); else t.items.push(Object.assign({ id: uid() }, vals));
     ui.editing = null; persist(); refresh();
   } },
@@ -1268,6 +1293,7 @@ function itemForm(t, it, date) {
       h('label', { class: 'field' }, h('span', {}, 'Расход' + (t.currency ? ', ' + t.currency : '')), fCost),
       h('label', { class: 'field' }, h('span', {}, 'Тип (значок)'), fKind)),
     h('label', { class: 'field' }, h('span', {}, 'Место'), fPlace),
+    h('label', { class: 'field' }, h('span', {}, 'Подтверждение'), fConf),
     h('label', { class: 'field' }, h('span', {}, 'Заметка'), fNote),
     h('div', { class: 'row' },
       h('button', { class: 'btn primary', type: 'submit' }, it ? 'Сохранить' : 'Добавить'),
