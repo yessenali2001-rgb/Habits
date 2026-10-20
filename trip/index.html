@@ -832,7 +832,9 @@ async function viaPhoton(q, near) {
   const lon = Number(c && c[0]), lat = Number(c && c[1]);
   if (!okPoint(lat, lon)) return null;
   const name = [pr.name || [pr.street, pr.housenumber].filter(Boolean).join(' '), pr.city || pr.state].filter(Boolean).join(', ');
-  return { lat, lon, name: (name || q).slice(0, 90) };
+  const res = { lat, lon, name: (name || q).slice(0, 90) };
+  if (/\d/.test(q) && !pr.housenumber && pr.osm_key === 'highway') res.approx = true;     // нашлась улица, а не дом
+  return res;
 }
 async function viaNominatim(q) {
   const j = await fetchJson('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q));
@@ -943,10 +945,10 @@ function astanaTrip() {
       it(0, '12:50', '', 'Астана', 'arrive'),
       it(0, '14:00', '15:30', 'Astana IT University', 'work', 0, '', 'Astana IT University, Астана'),
       it(0, '16:00', '17:30', 'Qazaq AI Research University', 'work', 0, '', 'ЭКСПО, Астана'),
-      it(1, '10:30', '12:30', 'Coventry University Kazakhstan', 'work'),
-      it(1, '14:00', '15:30', 'Maqsut Narikbayev University', 'work', 0, '', 'Коргалжынское шоссе 8, Астана'),
+      it(1, '10:30', '12:30', 'Coventry University Kazakhstan', 'work', 0, '', 'Қорғалжын тас жолы 13а, Астана'),
+      it(1, '14:00', '15:30', 'Maqsut Narikbayev University', 'work', 0, '', 'Қорғалжын тас жолы 8, Астана'),
       it(2, '10:30', '12:30', 'Nazarbayev University', 'work', 0, '', 'Nazarbayev University, Астана'),
-      it(2, '14:30', '16:30', 'Cardiff University Kazakhstan', 'work'),
+      it(2, '14:30', '16:30', 'Cardiff University Kazakhstan', 'work', 0, '', 'Сығанақ көшесі 38/1, Астана'),
       it(3, '19:35', '22:05', 'Рейс IQ 385: Астана → Актобе', 'flight', 0, 'Бронь 4TJC26 · эконом · регистрация до 18:35'),
       it(3, '22:05', '', 'Актобе', 'arrive')
     ]
@@ -1195,7 +1197,8 @@ function legRow(a, b) {
         return;
       }
       body.replaceChildren(h('span', { class: 'legpill' }, legText(i)), dir,
-        h('span', { class: 'legname' }, 'от «' + a.place + '» · на карте: «' + i.pa.name + '» → «' + i.pb.name + '»'));
+        h('span', { class: 'legname' }, 'от «' + a.place + '» · на карте: «' + i.pa.name + '» → «' + i.pb.name + '»' +
+          (i.pa.approx || i.pb.approx ? ' · дом на карте не найден, показана улица: расстояние примерное' : '')));
     }, () => body.replaceChildren(h('span', { class: 'legpill busy' }, 'не удалось посчитать'),
       h('button', { class: 'lnk', type: 'button', onclick: run }, 'повторить'), dir));
   };
@@ -1385,7 +1388,8 @@ function buildDistPanel(t) {
       i.road ? h('div', {}, 'По дороге: ' + fmtKm(i.m) + ' · ' + fmtDur(i.s))
         : h('div', {}, 'Маршрут по дорогам не построился. По прямой: ' + fmtKm(i.line)),
       i.road && h('div', { class: 'muted', style: 'margin:2px 0 0' }, 'По прямой: ' + fmtKm(i.line)),
-      h('div', { class: 'muted', style: 'margin:2px 0 8px' }, 'На карте найдено: «' + i.pa.name + '» → «' + i.pb.name + '»'),
+      h('div', { class: 'muted', style: 'margin:2px 0 8px' }, 'На карте найдено: «' + i.pa.name + '» → «' + i.pb.name + '»' +
+        (i.pa.approx || i.pb.approx ? '. Дом на карте не найден, показана улица, поэтому расстояние примерное.' : '')),
       h('a', { href: dirUrl(a, b), target: '_blank', rel: 'noopener' }, 'Открыть маршрут в Google Maps')));
   }
   return h('section', { class: 'panel' }, h('h2', {}, 'Расстояние между местами'), list,
