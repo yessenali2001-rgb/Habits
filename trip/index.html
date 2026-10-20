@@ -453,7 +453,7 @@ const GUESS = [
   ['food', /завтрак|обед|ужин|кафе|ресторан|хавчик|кофе|ланч|перекус|тамақ/i],
   ['transport', /такси|автовокзал|автобус|вокзал|поезд|метро|трансфер|маршрутк|электричк/i],
   ['walk', /қыдыр|гуля|прогулк|экскурс|музей|парк|набережн/i],
-  ['work', /school|школ|встреч|работ|конференц|лекци|урок/i],
+  ['work', /school|школ|встреч|работ|конференц|лекци|урок|universit|университет|институт|колледж|academy|академи/i],
   ['rest', /отбой|отдых|спать/i]
 ];
 const kindOf = it => own(KINDS, it.kind) ? it.kind : ((GUESS.find(g => g[1].test(it.title)) || [])[0] || 'other');
@@ -814,41 +814,60 @@ async function fetchJsonRetry(url, retries) {
     catch (e) { if (i >= retries) throw e; await sleep(700); }
   }
 }
-/* Три источника по очереди: Photon (места и адреса), Nominatim, Open-Meteo (только города). Бесплатные сервисы иногда отвечают с перебоями. */
-async function fetchGeo(q) {
-  const enc = encodeURIComponent(q);
-  try {
-    const j = await fetchJsonRetry('https://photon.komoot.io/api/?limit=1&q=' + enc, 1);
-    const f = j && j.features && j.features[0];
-    if (!f) return null;
-    const c = f.geometry && f.geometry.coordinates, pr = f.properties || {};
-    const lon = Number(c && c[0]), lat = Number(c && c[1]);
-    if (!okPoint(lat, lon)) return null;
-    const name = [pr.name || [pr.street, pr.housenumber].filter(Boolean).join(' '), pr.city || pr.state].filter(Boolean).join(', ');
-    return { lat, lon, name: (name || q).slice(0, 90) };
-  } catch (e) { /* пробуем следующий */ }
-  try {
-    const j = await fetchJson('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + enc);
-    const f = Array.isArray(j) ? j[0] : null;
-    if (!f) return null;
-    const lat = Number(f.lat), lon = Number(f.lon);
-    if (!okPoint(lat, lon)) return null;
-    return { lat, lon, name: String(f.display_name || q).split(',').slice(0, 2).join(',').slice(0, 90) };
-  } catch (e) { /* пробуем следующий */ }
-  const j = await fetchJson('https://geocoding-api.open-meteo.com/v1/search?count=1&language=ru&name=' + enc);
+/* Три источника: Open-Meteo находит города (самый крупный с таким названием), Photon находит места и адреса, Nominatim запасной.
+   Для одного слова, например «Актобе», города идут первыми: иначе Photon может найти хутор с тем же названием. */
+async function viaMeteo(q) {
+  const j = await fetchJson('https://geocoding-api.open-meteo.com/v1/search?count=1&language=ru&name=' + encodeURIComponent(q));
   const f = j && j.results && j.results[0];
   if (!f) return null;
   const lat = Number(f.latitude), lon = Number(f.longitude);
+  return okPoint(lat, lon) ? { lat, lon, name: [f.name, f.country].filter(Boolean).join(', ').slice(0, 90) } : null;
+}
+async function viaPhoton(q, near) {
+  const bias = near ? '&lat=' + near.lat + '&lon=' + near.lon : '';
+  const j = await fetchJsonRetry('https://photon.komoot.io/api/?limit=1' + bias + '&q=' + encodeURIComponent(q), 1);
+  const f = j && j.features && j.features[0];
+  if (!f) return null;
+  const c = f.geometry && f.geometry.coordinates, pr = f.properties || {};
+  const lon = Number(c && c[0]), lat = Number(c && c[1]);
   if (!okPoint(lat, lon)) return null;
-  return { lat, lon, name: [f.name, f.country].filter(Boolean).join(', ').slice(0, 90) };
+  const name = [pr.name || [pr.street, pr.housenumber].filter(Boolean).join(' '), pr.city || pr.state].filter(Boolean).join(', ');
+  return { lat, lon, name: (name || q).slice(0, 90) };
+}
+async function viaNominatim(q) {
+  const j = await fetchJson('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q));
+  const f = Array.isArray(j) ? j[0] : null;
+  if (!f) return null;
+  const lat = Number(f.lat), lon = Number(f.lon);
+  return okPoint(lat, lon) ? { lat, lon, name: String(f.display_name || q).split(',').slice(0, 2).join(',').slice(0, 90) } : null;
+}
+const NEAR_KM = 120;
+async function fetchGeo(q, cityFirst) {
+  const oneWord = !/[\s,\d]/.test(q);
+  const chain = cityFirst || oneWord ? [viaMeteo, viaPhoton, viaNominatim] : [viaPhoton, viaNominatim, viaMeteo];
+  /* «Место, Город»: сначала находим город и ищем место рядом с ним; ответ дальше 120 км от города считаем чужим. */
+  let near = null;
+  const m = q.match(/,\s*([^,\d\s][^,\d]*)$/);
+  if (!cityFirst && m && !/\s/.test(m[1].trim())) { try { near = await viaMeteo(m[1].trim()); } catch (e) { near = null; } }
+  let answered = false;
+  for (const via of chain) {
+    try {
+      let r = await via(q, near);
+      if (via !== viaMeteo || cityFirst || oneWord) answered = true;     // Open-Meteo знает только города, его «не нашёл» для адреса ничего не значит
+      if (r && near && haversine(near, r) > NEAR_KM * 1000) r = null;
+      if (r) return r;
+    } catch (e) { /* сервис недоступен, пробуем следующий */ }
+  }
+  if (answered) return null;                   // хоть один ответил, что такого места нет
+  throw new Error('geocoders unavailable');
 }
 /* Запросы идут по одному с паузой — так просят вести себя бесплатные сервисы. Ответы запоминаются в браузере. */
-function geocode(q) {
+function geocode(q, cityFirst) {
   q = q.trim();
-  const key = q.toLowerCase();
+  const key = q.toLowerCase() + (cityFirst ? '|c' : '');
   if (own(geoCache, key)) return Promise.resolve(geoCache[key]);
   if (own(geoPending, key)) return geoPending[key];
-  const job = geoQueue.then(() => fetchGeo(q)).then(r => { geoCache[key] = r; saveCache(GEO_KEY, geoCache); return r; });
+  const job = geoQueue.then(() => fetchGeo(q, cityFirst)).then(r => { geoCache[key] = r; saveCache(GEO_KEY, geoCache); return r; });
   geoPending[key] = job;
   const done = () => { delete geoPending[key]; };
   job.then(done, done);
@@ -876,14 +895,16 @@ async function roadRoute(a, b) {
   return null;                                 // не получилось: по прямой покажем, но не запоминаем
 }
 /* Расстояние между двумя местами, заданными текстом. */
-function legInfo(a, b) {
-  const key = a.trim().toLowerCase() + '|' + b.trim().toLowerCase();
+function legInfo(a, b, plane, cities) {
+  const key = a.trim().toLowerCase() + '|' + b.trim().toLowerCase() + (plane ? '|air' : '') + (cities ? '|c' : '');
   if (own(legPending, key)) return legPending[key];
   const job = (async () => {
-    const pa = await geocode(a), pb = await geocode(b);
+    const pa = await geocode(a, cities), pb = await geocode(b, cities);
     if (!pa) return { missing: a };
     if (!pb) return { missing: b };
-    const line = haversine(pa, pb), road = await roadRoute(pa, pb);
+    const line = haversine(pa, pb);
+    if (plane) return { pa, pb, line, plane: true, road: false, m: line, s: 0 };     // самолёт летит почти по прямой
+    const road = await roadRoute(pa, pb);
     return { pa, pb, line, road: !!road, m: road ? road.m : line, s: road ? road.s : 0 };
   })();
   legPending[key] = job;
@@ -899,13 +920,42 @@ function fmtDur(sec) {
   const m = Math.max(1, Math.round(sec / 60));
   return m < 60 ? m + ' мин' : Math.floor(m / 60) + ' ч' + (m % 60 ? ' ' + (m % 60) + ' мин' : '');
 }
-const legText = i => i.road ? '≈ ' + fmtKm(i.m) + ' · ' + fmtDur(i.s) : '≈ ' + fmtKm(i.m) + ' по прямой';
+const legText = i => i.plane ? 'самолёт · ≈\u00a0' + fmtKm(i.m) : i.road ? '≈ ' + fmtKm(i.m) + ' · ' + fmtDur(i.s) : '≈ ' + fmtKm(i.m) + ' по прямой';
 const dirUrl = (a, b) => 'https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=' + encodeURIComponent(a) + '&destination=' + encodeURIComponent(b);
 function placesOf(t) {
   const set = new Set();
   t.items.forEach(i => { const p = i.place || (kindOf(i) === 'arrive' ? i.title : ''); if (p) set.add(p); });
   return [...set].slice(0, 40);
 }
+
+/* Билет Актобе – Астана – Актобе: рейсы IQ 400 и IQ 385, бронь 4TJC26. Время вылета и прилёта на билете местное. Цену билета пока не указываем. */
+function astanaTrip() {
+  const D = ['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31'];
+  let n = 0;
+  const it = (d, time, end, title, kind, cost, note, place) => ({ id: 'a' + (++n), date: D[d], time, end: end || '', title, kind, cost: cost || 0, place: place || '', note: note || '' });
+  return normTrip({
+    id: 'astana', title: 'Астана', dest: 'Актобе – Астана', start: D[0], end: D[3], currency: '₸',
+    labels: { [D[0]]: 'Актобе → Астана', [D[3]]: 'Астана → Актобе' },
+    people: [],
+    items: [
+      it(0, '10:35', '12:50', 'Рейс IQ 400: Актобе → Астана', 'flight', 0,
+        'Бронь 4TJC26 · Vietjet Qazaqstan, эконом · ручная кладь 7 кг (56×36×23 см), без багажа · невозвратный, обмен платный · регистрация до 09:35'),
+      it(0, '12:50', '', 'Астана', 'arrive'),
+      it(0, '14:00', '15:30', 'Astana IT University', 'work', 0, '', 'Astana IT University, Астана'),
+      it(0, '16:00', '17:30', 'Qazaq AI Research University', 'work', 0, '', 'ЭКСПО, Астана'),
+      it(1, '10:30', '12:30', 'Coventry University Kazakhstan', 'work'),
+      it(1, '14:00', '15:30', 'Maqsut Narikbayev University', 'work', 0, '', 'Коргалжынское шоссе 8, Астана'),
+      it(2, '10:30', '12:30', 'Nazarbayev University', 'work', 0, '', 'Nazarbayev University, Астана'),
+      it(2, '14:30', '16:30', 'Cardiff University Kazakhstan', 'work'),
+      it(3, '19:35', '22:05', 'Рейс IQ 385: Астана → Актобе', 'flight', 0, 'Бронь 4TJC26 · эконом · регистрация до 18:35'),
+      it(3, '22:05', '', 'Актобе', 'arrive')
+    ]
+  });
+}
+const SAMPLES = [
+  { id: 'astana', title: 'Билет Актобе – Астана – Актобе', note: '28–31 октября · 2 рейса · 6 университетов', build: astanaTrip },
+  { id: SAMPLE_ID, title: 'План из вашей таблицы: Алматы – Бишкек', note: '11–15 декабря · 5 дней · расходы 97 000 ₸', build: sampleTrip }
+];
 
 /* ================= отрисовка ================= */
 const ui = { editing: null };
@@ -952,10 +1002,9 @@ function openList() {
         total > 0 && h('strong', {}, money(total, t.currency)),
         t.people.length > 0 && h('span', {}, 'едут: ' + t.people.length)));
   };
-  const sample = !state.trips.some(t => t.id === SAMPLE_ID) && h('div', { class: 'panel sample' },
-    h('div', {}, h('b', {}, 'План из вашей таблицы: Алматы – Бишкек'),
-      h('span', {}, '11–15 декабря · 5 дней · расходы 97 000 ₸')),
-    h('button', { class: 'btn primary', onclick: addSample }, 'Добавить в мои поездки'));
+  const sample = SAMPLES.filter(sp => !state.trips.some(t => t.id === sp.id)).map(sp => h('div', { class: 'panel sample', 'data-id': sp.id },
+    h('div', {}, h('b', {}, sp.title), h('span', {}, sp.note)),
+    h('button', { class: 'btn primary', onclick: () => addSample(sp.id) }, 'Добавить в мои поездки')));
   show(
     h('div', { class: 'head' },
       h('div', {}, h('h1', {}, 'Мои поездки'),
@@ -973,8 +1022,8 @@ function newTrip() {
   state.trips.push(t); save();
   location.hash = '#trip=' + encodeURIComponent(t.id);
 }
-function addSample() {
-  const t = sampleTrip();
+function addSample(id) {
+  const t = SAMPLES.find(sp => sp.id === id).build();
   state.trips.push(t); save();
   location.hash = '#trip=' + encodeURIComponent(t.id);
 }
@@ -1002,23 +1051,27 @@ function renderHero(box, t, edit) {
       h('small', {}, 'Едут: ' + t.people.map(p => p.name).join(', ')))
   ]);
   box.querySelectorAll('.stop .sd').forEach((el, k) => {          // расстояние от предыдущей остановки
-    const a = stops[k].name, b = stops[k + 1].name;
+    const a = stops[k].name, b = stops[k + 1].name, plane = stops[k + 1].by === 'plane';
     el.textContent = 'считаем…';
-    legInfo(a, b).then(i => {
+    legInfo(a, b, plane, true).then(i => {
       if (!el.isConnected) return;
       if (i.missing) { el.textContent = ''; return; }
       el.textContent = legText(i);
-      el.title = 'От «' + a + '» до «' + b + '»' + (i.road ? ': по дорогам, без остановок и очереди на границе' : ': по прямой');
+      el.title = 'От «' + a + '» до «' + b + '»' + (i.plane ? ': по прямой, это расстояние самолёта' : i.road ? ': по дорогам, без остановок и очереди на границе' : ': по прямой');
     }, () => { if (el.isConnected) el.textContent = ''; });
   });
 }
 const initials = name => name.trim().split(/\s+/).slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('') || '?';
 function routeStops(t) {
   const out = [];
+  let last = '';
   tripDays(t).forEach(d => dayItems(t, d).forEach(i => {
-    if (kindOf(i) !== 'arrive') return;
-    const prev = out[out.length - 1];
-    if (!prev || prev.name !== i.title) out.push({ name: i.title, date: d });
+    const k = kindOf(i);
+    if (k === 'arrive') {
+      const prev = out[out.length - 1];
+      if (!prev || prev.name !== i.title) out.push({ name: i.title, date: d, by: last === 'flight' ? 'plane' : '' });
+    }
+    last = k;
   }));
   return out;
 }
@@ -1341,7 +1394,7 @@ function buildDistPanel(t) {
       h('label', { class: 'field' }, h('span', {}, 'Куда'), fB),
       h('button', { class: 'btn primary', type: 'submit' }, 'Посчитать')),
     out,
-    h('p', { class: 'muted' }, 'Расстояние считают открытые сервисы на данных OpenStreetMap (Photon, Nominatim, Open-Meteo и OSRM), им отправляются названия мест. Если нашлось не то место, уточните название: добавьте улицу и город. Время приблизительное: без пробок, остановок и очереди на границе. Такие же расстояния показаны между соседними местами плана и между городами в шапке.'));
+    h('p', { class: 'muted' }, 'Расстояние считают открытые сервисы (OpenStreetMap, Open-Meteo и OSRM), им отправляются названия мест. Если нашлось не то место, уточните название: добавьте улицу и город. Время приблизительное: без пробок, остановок и очереди на границе. Такие же расстояния показаны между соседними местами плана и между городами в шапке.'));
 }
 
 /* ---- поделиться и календарь ---- */
