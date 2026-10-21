@@ -622,6 +622,22 @@ const withCity = (place, city) => !city || place.indexOf(',') >= 0 || place.toLo
 const mapsUrl = (t, place, city) => 'https://www.google.com/maps/search/?api=1&query=' +
   encodeURIComponent(city ? withCity(place, city) : t.dest && place.indexOf(',') < 0 && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
 
+/* 2ГИС: поиск места и маршрут между двумя точками. Город нужен для адреса сайта; для неизвестного города ссылку не показываем. */
+const DGIS = { 'астана': ['kz', 'astana'], 'алматы': ['kz', 'almaty'], 'актобе': ['kz', 'aktobe'], 'шымкент': ['kz', 'shymkent'], 'караганда': ['kz', 'karaganda'],
+  'павлодар': ['kz', 'pavlodar'], 'костанай': ['kz', 'kostanay'], 'актау': ['kz', 'aktau'], 'атырау': ['kz', 'atyrau'], 'семей': ['kz', 'semey'],
+  'тараз': ['kz', 'taraz'], 'кызылорда': ['kz', 'kyzylorda'], 'уральск': ['kz', 'uralsk'], 'петропавловск': ['kz', 'petropavlovsk'],
+  'талдыкорган': ['kz', 'taldykorgan'], 'бишкек': ['kg', 'bishkek'], 'ош': ['kg', 'osh'], 'москва': ['ru', 'moscow'], 'санкт-петербург': ['ru', 'spb'] };
+const dgisBase = city => { const k = (city || '').trim().toLowerCase(); return own(DGIS, k) ? 'https://2gis.' + DGIS[k][0] + '/' + DGIS[k][1] : null; };
+function dgisCityOf(place, city) {              // город из адреса («…, Астана»), иначе город, где вы сейчас
+  const m = place.match(/,\s*([^,]+)$/);
+  if (!m) return city;
+  const last = m[1].trim();
+  if (dgisBase(last)) return last;
+  return /\d/.test(last) ? city : '';           // назван другой город, которого нет в списке: ссылку на 2ГИС не даём
+}
+const dgisSame = (a, ca, b, cb) => { const x = dgisBase(dgisCityOf(a, ca)), y = dgisBase(dgisCityOf(b, cb)); return x && x === y ? x : null; };
+const dgisSearch = (place, city) => { const b = dgisBase(dgisCityOf(place, city)); return b && b + '/search/' + encodeURIComponent(place); };
+const dgisRoute = (base, a, b) => base && base + '/directions/points/' + a.lon + '%2C' + a.lat + '%7C' + b.lon + '%2C' + b.lat;
 const dayTotal = (t, d) => t.items.reduce((s, i) => i.date === d ? s + i.cost : s, 0);
 const totalCost = t => t.items.reduce((s, i) => s + i.cost, 0);
 function tripLength(t) { return diffDays(t.start, t.end) + 1; }
@@ -1270,13 +1286,14 @@ function legRow(a, b, ca, cb) {
         body.replaceChildren(h('span', { class: 'legpill busy' }, 'место не найдено на карте: «' + i.missing + '»'), dir);
         return;
       }
+      const dg2 = dgisRoute(dgisSame(a.place, ca, b.place, cb), i.pa, i.pb);
       const far = i.line > 150000;                  // так далеко в одном дне бывает редко: скорее всего найден другой город
       body.replaceChildren();                       // append, а не replaceChildren с аргументами: false превратился бы в текст «false»
       append(body, [far
         ? h('span', { class: 'legpill warn' }, legText(i) + ' · проверьте город в адресе')
         : [h('span', { class: 'legpill', title: 'На машине' }, ico('car'), legText(i)),
           i.walk && i.walk.s <= 10800 && h('span', { class: 'legpill', title: 'Пешком' }, ico('foot'), walkText(i.walk))],
-        dir,
+        dir, dg2 && h('a', { href: dg2, target: '_blank', rel: 'noopener', title: 'Маршрут в 2ГИС' }, '2ГИС'),
         h('span', { class: 'legname' }, 'от «' + a.place + '» · на карте: «' + i.pa.name + '» → «' + i.pb.name + '»' +
           (i.pa.approx || i.pb.approx ? ' · дом на карте не найден, показана улица: расстояние примерное' : ''))]);
     }, () => body.replaceChildren(h('span', { class: 'legpill busy' }, 'не удалось посчитать'),
@@ -1308,7 +1325,8 @@ function itemRow(t, it, edit, parent, city) {
     h('div', { class: 'ib' },
       h('div', { class: 'ititle' }, h('span', { class: 'sr' }, KINDS[kind].label + ': '), it.title),
       parent && h('div', { class: 'inside' }, 'во время «' + parent.title + '»'),
-      it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place, city), target: '_blank', rel: 'noopener' }, ico('pin'), ' ' + it.place)),
+      it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place, city), target: '_blank', rel: 'noopener' }, ico('pin'), ' ' + it.place),
+        dgisSearch(it.place, city) && [' · ', h('a', { class: 'dg', href: dgisSearch(it.place, city), target: '_blank', rel: 'noopener', title: 'Открыть в 2ГИС' }, '2ГИС')]),
       it.note && h('span', { class: 'tag' }, it.note),
       it.conf > 0 && h('div', {}, confLabel),
       h('div', { class: 'acts' },
@@ -1494,7 +1512,8 @@ function buildDistPanel(t) {
       i.road && h('div', { class: 'muted', style: 'margin:2px 0 0' }, 'По прямой: ' + fmtKm(i.line)),
       h('div', { class: 'muted', style: 'margin:2px 0 8px' }, 'На карте найдено: «' + i.pa.name + '» → «' + i.pb.name + '»' +
         (i.pa.approx || i.pb.approx ? '. Дом на карте не найден, показана улица, поэтому расстояние примерное.' : '')),
-      h('a', { href: dirUrl(qa, qb), target: '_blank', rel: 'noopener' }, 'Открыть маршрут в Google Maps')));
+      h('a', { href: dirUrl(qa, qb), target: '_blank', rel: 'noopener' }, 'Открыть маршрут в Google Maps'),
+      dgisRoute(dgisSame(a, city, b, city), i.pa, i.pb) && [' · ', h('a', { href: dgisRoute(dgisSame(a, city, b, city), i.pa, i.pb), target: '_blank', rel: 'noopener' }, 'в 2ГИС')]));
   }
   return h('section', { class: 'panel' }, h('h2', {}, 'Расстояние между местами'), list,
     h('form', { onsubmit: e => { e.preventDefault(); go(); } },
