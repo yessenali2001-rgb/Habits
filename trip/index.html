@@ -305,6 +305,13 @@ textarea.inp { resize:vertical; }
 .chip button:hover { color:var(--bad); }
 .settings > summary { cursor:pointer; font-weight:600; font-size:15px; }
 .settings[open] > summary { margin-bottom:14px; }
+.sstat { margin:0 0 6px; font-weight:600; color:var(--ok); }
+.sstat.bad { color:var(--bad); }
+.howto { margin:0 0 14px; }
+.howto summary { cursor:pointer; font-weight:600; }
+.howto ol { margin:10px 0; padding-left:20px; }
+.howto li { margin-bottom:6px; }
+pre.sql { max-height:220px; overflow:auto; margin:10px 0; padding:12px; border-radius:12px; background:var(--surface2); font-size:12px; line-height:1.45; white-space:pre; }
 .banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between; margin-bottom:18px; }
 .banner b { font-size:15px; }
 
@@ -321,6 +328,7 @@ textarea.inp { resize:vertical; }
 .tc-meta { display:flex; gap:6px 14px; flex-wrap:wrap; padding:14px 18px 16px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .tc-meta strong { color:var(--tx); font-weight:600; }
 .sample { margin-top:18px; display:flex; gap:14px; align-items:center; justify-content:space-between; flex-wrap:wrap; border:2px dashed var(--line2); }
+.sync { margin-top:18px; }
 .sample b { display:block; }
 .sample span { color:var(--muted); font-size:13.5px; }
 .group { margin:26px 0 12px; font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-weight:600; }
@@ -522,7 +530,7 @@ function itemSpan(it) {                         // без конца — час
 }
 
 /* ================= модель и хранилище ================= */
-const state = { trips: [] };
+const state = { trips: [], deleted: {} };      // deleted: id удалённой поездки → когда (нужно синхронизации)
 
 /* Единая проверка: и для сохранённых данных, и для чужих ссылок. */
 function normTrip(o) {
@@ -571,11 +579,13 @@ function load() {
   try {
     const d = JSON.parse(localStorage.getItem(STORE));
     if (d && Array.isArray(d.trips)) state.trips = d.trips.map(normTrip).filter(Boolean);
+    if (d && d.deleted && typeof d.deleted === 'object') Object.keys(d.deleted).forEach(k => { if (goodId(k) && +d.deleted[k] > 0) state.deleted[k] = +d.deleted[k]; });
   } catch (e) {}
 }
-function save() {
+function save(silent) {
   try { localStorage.setItem(STORE, JSON.stringify(state)); }
   catch (e) { toast('Не удалось сохранить: память браузера недоступна или переполнена', true); }
+  if (!silent) syncSoon();
 }
 
 function tripDays(t) {
@@ -1032,6 +1042,243 @@ const SAMPLES = [
   { id: SAMPLE_ID, title: 'План из вашей таблицы: Алматы – Бишкек', note: '11–15 декабря · 5 дней · расходы 97 000 ₸', build: sampleTrip }
 ];
 
+/* ================= синхронизация между устройствами (Supabase) ================= */
+/* Вся база поездок лежит под секретным кодом: сервер знает только его хеш, читать и писать можно через две функции (trip/sync.sql).
+   Поездки склеиваются по времени последней правки: у каждой побеждает более свежая копия; удалённые помечаются отдельно. */
+const SYNC_KEY = 'tripSync.v1';
+const DEFAULT_SYNC = { url: '', key: '' };      // можно вписать адрес и открытый ключ проекта: тогда на других устройствах нужен только код
+const SYNC_SQL = `-- Синхронизация поездок между устройствами (Supabase).
+-- Выполните один раз: Supabase -> SQL Editor -> New query -> вставьте -> Run.
+-- Таблица закрыта для всех. Читать и писать можно только через две функции и только зная секретный код синхронизации
+-- (в таблице хранится лишь его хеш), поэтому открытый ключ anon из настроек проекта ничего чужого не даёт.
+
+create table if not exists public.trip_sync (
+  code_hash  text primary key,
+  data       jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.trip_sync enable row level security;
+revoke all on public.trip_sync from anon, authenticated;
+
+create or replace function public.trip_sync_get(_code text)
+returns jsonb
+language sql
+security definer
+set search_path = ''
+as $$
+  select data from public.trip_sync
+  where code_hash = encode(sha256(convert_to(_code, 'utf8')), 'hex')
+$$;
+
+create or replace function public.trip_sync_put(_code text, _data jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if _code is null or length(_code) < 16 then
+    raise exception 'sync code is too short (16 characters at least)';
+  end if;
+  if pg_column_size(_data) > 3000000 then
+    raise exception 'data is too large';
+  end if;
+  insert into public.trip_sync (code_hash, data)
+  values (encode(sha256(convert_to(_code, 'utf8')), 'hex'), _data)
+  on conflict (code_hash) do update set data = excluded.data, updated_at = now();
+end
+$$;
+
+revoke all on function public.trip_sync_get(text) from public;
+revoke all on function public.trip_sync_put(text, jsonb) from public;
+grant execute on function public.trip_sync_get(text) to anon;
+grant execute on function public.trip_sync_put(text, jsonb) to anon;
+`;
+let sync = { url: DEFAULT_SYNC.url, key: DEFAULT_SYNC.key, code: '', last: 0, error: '' };
+let syncBusy = false, syncAgain = false, syncTimer = 0;
+const syncOn = () => !!(sync.url && sync.key && sync.code);
+function loadSync() {
+  try {
+    const o = JSON.parse(localStorage.getItem(SYNC_KEY));
+    if (o && typeof o === 'object') ['url', 'key', 'code'].forEach(k => { if (typeof o[k] === 'string' && o[k]) sync[k] = o[k]; });
+    if (o && +o.last > 0) sync.last = +o.last;
+  } catch (e) {}
+}
+function saveSync() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); } catch (e) {} }
+const cleanUrl = u => u.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
+const okUrl = u => /^https?:\/\/[^\s/]+$/.test(u);
+function newCode() {
+  const b = new Uint8Array(16); crypto.getRandomValues(b);
+  return 'wp-' + [...b].map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 24);
+}
+
+async function rpc(fn, args) {
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), 15000);
+  try {
+    const r = await fetch(sync.url + '/rest/v1/rpc/' + fn, { method: 'POST', signal: c.signal,
+      headers: { apikey: sync.key, Authorization: 'Bearer ' + sync.key, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) {
+      let m = '';
+      try { const j = await r.json(); m = j.message || ''; } catch (e) {}
+      throw new Error(r.status === 404 ? 'функции не найдены: выполните SQL из инструкции' : r.status === 401 || r.status === 403 ? 'ключ не подходит' : (m || 'ошибка ' + r.status));
+    }
+    const text = await r.text();
+    return text ? JSON.parse(text) : null;
+  } finally { clearTimeout(tm); }
+}
+
+/* Склеивает облачную копию с локальной. Возвращает, изменилось ли что-то здесь и нужно ли отправить что-то в облако. */
+function mergeRemote(remote) {
+  let changed = false;
+  const rt = new Map();
+  (remote && Array.isArray(remote.trips) ? remote.trips : []).slice(0, 200).map(normTrip).filter(Boolean).forEach(t => rt.set(t.id, t));
+  const rdel = remote && remote.deleted && typeof remote.deleted === 'object' ? remote.deleted : {};
+  Object.keys(rdel).forEach(id => {
+    const ts = +rdel[id];
+    if (goodId(id) && ts > (state.deleted[id] || 0)) { state.deleted[id] = ts; changed = true; }
+  });
+  const before = state.trips.length;
+  state.trips = state.trips.filter(t => (state.deleted[t.id] || 0) < t.updated);      // удалена позже последней правки: убираем
+  if (state.trips.length !== before) changed = true;
+  rt.forEach((r, id) => {
+    if ((state.deleted[id] || 0) >= r.updated) return;
+    const mine = state.trips.find(t => t.id === id);
+    if (!mine) { state.trips.push(r); changed = true; }
+    else if (r.updated > mine.updated) { Object.assign(mine, r); changed = true; }     // на месте: открытая страница не теряет ссылку на поездку
+  });
+  const ids = Object.keys(state.deleted);
+  if (ids.length > 100) ids.sort((a, b) => state.deleted[a] - state.deleted[b]).slice(0, ids.length - 100).forEach(id => { delete state.deleted[id]; });
+  const needPush = state.trips.some(t => { const r = rt.get(t.id); return !r || t.updated > r.updated; })
+    || Object.keys(state.deleted).some(id => !(id in rdel) || state.deleted[id] > +rdel[id]);
+  return { changed, needPush };
+}
+
+async function syncNow() {
+  if (!syncOn()) return;
+  if (syncBusy) { syncAgain = true; return; }
+  syncBusy = true; sync.error = ''; paintSync();
+  try {
+    const remote = await rpc('trip_sync_get', { _code: sync.code });
+    const r = mergeRemote(remote);
+    if (r.changed) { save(true); rerender(); }
+    if (r.needPush) await rpc('trip_sync_put', { _code: sync.code, _data: { v: 1, trips: state.trips, deleted: state.deleted } });
+    sync.last = Date.now();
+  } catch (e) {
+    sync.error = e.name === 'AbortError' ? 'нет ответа от сервера' : (e.message === 'Failed to fetch' ? 'нет связи с сервером' : (e.message || 'ошибка'));
+  } finally {
+    syncBusy = false; saveSync(); paintSync();
+    if (syncAgain) { syncAgain = false; syncSoon(); }
+  }
+}
+function syncSoon() {
+  if (!syncOn()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 1500);
+}
+/* Показываем пришедшие изменения, не мешая тому, кто сейчас печатает. */
+function rerender() {
+  const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (cur) {
+    if (!state.trips.includes(cur)) { location.hash = ''; return; }
+    if (!typing && !ui.editing) { renderPeople(); refresh(); syncShare(); }
+  } else if (!location.hash || location.hash === '#') {
+    if (!typing) openList();
+  }
+}
+function paintSync() {
+  if (!els.syncStatus) return;
+  els.syncStatus.textContent = sync.error ? 'Ошибка: ' + sync.error
+    : syncBusy ? 'Синхронизируем…'
+    : sync.last ? 'Синхронизировано в ' + new Date(sync.last).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'Ещё не синхронизировано';
+  els.syncStatus.className = 'sstat' + (sync.error ? ' bad' : '');
+}
+const cfgLink = () => baseUrl() + '#cfg=' + b64u(new TextEncoder().encode(JSON.stringify({ u: sync.url, k: sync.key, c: sync.code })));
+
+function syncPanel() {
+  if (syncOn()) {
+    els.syncStatus = h('p', { class: 'sstat' });
+    const panel = h('section', { class: 'panel sync' },
+      h('h2', {}, 'Синхронизация включена'),
+      els.syncStatus,
+      h('p', { class: 'muted', style: 'margin-top:0' }, 'Поездки сами совпадают на всех устройствах, где введён тот же код. Правки отправляются через пару секунд после изменения.'),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', type: 'button', onclick: () => { toast('Синхронизируем…'); syncNow(); } }, 'Синхронизировать сейчас'),
+        h('button', { class: 'btn', type: 'button', onclick: async () => {
+          const link = cfgLink();
+          try { await navigator.clipboard.writeText(link); toast('Ссылка для телефона скопирована'); }
+          catch (e) { prompt('Скопируйте ссылку и откройте её на телефоне', link); }
+        } }, 'Ссылка для телефона'),
+        h('button', { class: 'btn danger', type: 'button', onclick: () => {
+          if (!confirm('Отключить синхронизацию на этом устройстве? Поездки останутся здесь и в облаке.')) return;
+          sync.code = ''; saveSync(); openList();
+        } }, 'Отключить')),
+      h('p', { class: 'muted' }, 'Ссылка для телефона содержит ваш секретный код: отправляйте её только себе.'));
+    paintSync();
+    return panel;
+  }
+  const url = h('input', { class: 'inp sm', placeholder: 'https://xxxx.supabase.co', autocomplete: 'off', 'aria-label': 'Адрес проекта Supabase', value: sync.url });
+  const key = h('input', { class: 'inp sm', placeholder: 'Ключ «anon public»', autocomplete: 'off', 'aria-label': 'Открытый ключ anon', value: sync.key });
+  const code = h('input', { class: 'inp sm', placeholder: 'Секретный код, 16 символов и больше', autocomplete: 'off', 'aria-label': 'Код синхронизации', value: sync.code });
+  const turnOn = async () => {
+    const u = cleanUrl(url.value), k = key.value.trim(), c = code.value.trim();
+    if (!okUrl(u)) { toast('Адрес должен выглядеть как https://xxxx.supabase.co', true); url.focus(); return; }
+    if (!k || /\s/.test(k)) { toast('Вставьте ключ «anon public» целиком', true); key.focus(); return; }
+    if (c.length < 16) { toast('Код: не короче 16 символов. Нажмите «Придумать код»', true); code.focus(); return; }
+    sync = Object.assign(sync, { url: u, key: k, code: c, error: '', last: 0 });
+    saveSync();
+    try { await rpc('trip_sync_get', { _code: c }); }
+    catch (e) { sync.code = ''; saveSync(); toast('Не получилось подключиться: ' + (e.message === 'Failed to fetch' ? 'нет связи с сервером' : e.message), true); return; }
+    toast('Синхронизация включена');
+    openList(); syncNow();
+  };
+  return h('section', { class: 'panel sync' },
+    h('h2', {}, 'Синхронизация между устройствами'),
+    h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'Сейчас поездки хранятся только в этом браузере. Чтобы они одинаково показывались на компьютере и телефоне, подключите свою бесплатную базу Supabase. Это нужно сделать один раз.'),
+    h('details', { class: 'howto' },
+      h('summary', {}, 'Как создать базу (5 минут)'),
+      h('ol', {},
+        h('li', {}, 'Откройте supabase.com, войдите (можно через GitHub) и нажмите New project: любое имя, придумайте пароль базы, ближайший регион. Подождите пару минут.'),
+        h('li', {}, 'Слева выберите SQL Editor, New query, вставьте код ниже и нажмите Run.'),
+        h('li', {}, 'Слева Project Settings, API: скопируйте Project URL и ключ «anon public» в поля ниже.'),
+        h('li', {}, 'Нажмите «Придумать код» (или впишите свой, не короче 16 символов) и «Включить».'),
+        h('li', {}, 'На телефоне откройте «Ссылку для телефона» из этого же блока, и там всё подключится само.')),
+      h('pre', { class: 'sql' }, SYNC_SQL),
+      h('button', { class: 'btn tiny', type: 'button', onclick: async () => {
+        try { await navigator.clipboard.writeText(SYNC_SQL); toast('SQL скопирован'); } catch (e) { toast('Выделите код и скопируйте вручную', true); }
+      } }, 'Скопировать SQL'),
+      h('p', { class: 'muted' }, 'Бесплатный проект Supabase засыпает, если неделю не заходить. Его можно разбудить кнопкой в панели Supabase, данные сохраняются.')),
+    h('label', { class: 'field' }, h('span', {}, 'Адрес проекта'), url),
+    h('label', { class: 'field' }, h('span', {}, 'Открытый ключ'), key),
+    h('label', { class: 'field' }, h('span', {}, 'Секретный код'), code),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', type: 'button', onclick: () => { code.value = newCode(); } }, 'Придумать код'),
+      h('button', { class: 'btn primary', type: 'button', onclick: turnOn }, 'Включить')),
+    h('p', { class: 'muted' }, 'Код нужен, чтобы читать и менять ваши поездки; в базе хранится только его хеш. Не показывайте его другим.'));
+}
+
+/* Ссылка «для телефона»: подтверждаем, прежде чем подключаться. */
+function openCfg(payload) {
+  setBack(true);
+  document.title = 'Синхронизация';
+  let c = null;
+  try { c = JSON.parse(new TextDecoder().decode(unb64u(payload))); } catch (e) {}
+  const u = c && typeof c.u === 'string' ? cleanUrl(c.u) : '', k = c && typeof c.k === 'string' ? c.k.trim() : '', code = c && typeof c.c === 'string' ? c.c.trim() : '';
+  if (!okUrl(u) || !k || code.length < 16) {
+    show(h('div', { class: 'panel' }, h('h2', {}, 'Ссылка повреждена'), h('p', { class: 'lead' }, 'Скопируйте «Ссылку для телефона» ещё раз.')));
+    return;
+  }
+  show(h('div', { class: 'panel' },
+    h('h2', {}, 'Подключить синхронизацию?'),
+    h('p', { class: 'lead' }, 'Поездки на этом устройстве будут храниться в базе ' + new URL(u).host + ' и совпадать с остальными устройствами. Код заканчивается на «' + code.slice(-4) + '».'),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary', type: 'button', onclick: () => {
+        sync = Object.assign(sync, { url: u, key: k, code, error: '', last: 0 }); saveSync();
+        location.hash = ''; toast('Синхронизация включена'); syncNow();
+      } }, 'Подключить'),
+      h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = ''; } }, 'Отмена'))));
+}
+
 /* ================= отрисовка ================= */
 const ui = { editing: null };
 let cur = null, els = {}, shareLink = '', shareTok = 0, routeTok = 0, spy = null;
@@ -1043,6 +1290,7 @@ function route() {
   ui.editing = null; cur = null; els = {};
   if (spy) { spy.disconnect(); spy = null; }
   window.scrollTo(0, 0);
+  if (hs.indexOf('#cfg=') === 0) return openCfg(hs.slice(5));
   if (hs.indexOf('#s=') === 0) return openShared(hs.slice(3), my);
   if (hs.indexOf('#trip=') === 0) {
     let id = '';
@@ -1095,7 +1343,7 @@ function openList() {
     past.length > 0 && [h('p', { class: 'group' }, 'Прошедшие'), h('div', { class: 'tgrid' }, past.map((t, i) => card(t, up.length + i)))],
     !state.trips.length && h('div', { class: 'panel' }, h('p', { class: 'lead', style: 'margin:0' },
       'Пока нет поездок. Создайте первую: укажите даты, добавьте план по дням и тех, кто едет с вами.')),
-    ideasCard, sample);
+    ideasCard, sample, syncPanel());
 }
 function newTrip() {
   const s = todayISO();
@@ -1437,7 +1685,7 @@ function openTrip(t) {
     h('label', { class: 'field' }, h('span', {}, 'Валюта расходов'), fCur),
     h('button', { class: 'btn tiny danger', onclick: () => {
       if (!confirm('Удалить поездку «' + t.title + '» вместе с планом? Это нельзя отменить.')) return;
-      state.trips = state.trips.filter(x => x !== t); save(); location.hash = '';
+      state.trips = state.trips.filter(x => x !== t); state.deleted[t.id] = Date.now(); save(); location.hash = '';
     } }, 'Удалить поездку'));
 
   els.settings = settings;
@@ -1617,6 +1865,8 @@ async function openShared(payload, my) {
   renderHero(hero, t); renderBudget(budget, t); renderNav(nav, t); renderDays(plan, t, false); watchDays();
 }
 function importTrip(t) {
+  t.updated = Date.now();                       // импортированная копия считается самой свежей и уйдёт в облако
+  delete state.deleted[t.id];
   const i = state.trips.findIndex(x => x.id === t.id);
   if (i >= 0) {
     if (!confirm('Эта поездка уже есть у вас. Заменить вашу копию обновлённым планом? Ваши правки в ней пропадут.')) return;
@@ -1641,8 +1891,12 @@ $('#theme').addEventListener('click', () => applyTheme(document.documentElement.
   document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#eef3fb' : '#0b1020';
 }
 load();
+loadSync();
 window.addEventListener('hashchange', route);
 route();
+syncNow();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
+window.addEventListener('online', syncNow);
 </script>
 </body>
 </html>
