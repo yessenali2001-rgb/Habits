@@ -568,20 +568,6 @@ function load() {
     if (d && Array.isArray(d.trips)) state.trips = d.trips.map(normTrip).filter(Boolean);
   } catch (e) {}
 }
-/* Копия «Астаны», добавленная раньше, могла остаться без адресов: подставляем их туда, где место пустое.
-   Ищем по названию и дню, уже вписанные вами места не трогаем. */
-function fillAstanaPlaces() {
-  const mine = state.trips.find(t => t.id === 'astana');
-  if (!mine) return;
-  const known = new Map();
-  astanaTrip().items.forEach(i => { if (i.place && !/^idea/.test(i.id)) known.set(i.date + '|' + i.title, i.place); });
-  const filled = [];
-  mine.items.forEach(i => {
-    const p = known.get(i.date + '|' + i.title);
-    if (p && !i.place) { i.place = p; filled.push(i.title); }
-  });
-  if (filled.length) { save(); toast('Добавил адреса в «Астану»: ' + filled.join(', ')); }
-}
 function save() {
   try { localStorage.setItem(STORE, JSON.stringify(state)); }
   catch (e) { toast('Не удалось сохранить: память браузера недоступна или переполнена', true); }
@@ -1589,7 +1575,6 @@ $('#theme').addEventListener('click', () => applyTheme(document.documentElement.
   document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#eef3fb' : '#0b1020';
 }
 load();
-fillAstanaPlaces();
 window.addEventListener('hashchange', route);
 route();
 </script>
