@@ -240,6 +240,7 @@ textarea.inp { resize:vertical; }
 .legpill { display:inline-flex; align-items:center; gap:6px; margin-right:6px; font-size:12.5px; font-weight:600; padding:3px 10px; border-radius:99px; background:var(--surface2);
   font-variant-numeric:tabular-nums; }
 .legpill.busy { color:var(--muted); font-weight:500; }
+.legpill.warn { background:transparent; border:1px solid var(--warn); color:var(--warn); }
 .legpill .ic { font-size:14px; color:var(--muted); }
 .leg a, .leg .lnk { font-size:12.5px; margin-left:10px; color:var(--accent-tx); }
 .leg .lnk { background:none; border:0; padding:0; text-decoration:underline; }
@@ -609,8 +610,17 @@ function parentsOf(its) {
   return map;
 }
 const guestsOf = t => t.people.map(p => p.email).filter(Boolean);
-const mapsUrl = (t, place) => 'https://www.google.com/maps/search/?api=1&query=' +
-  encodeURIComponent(t.dest && place.indexOf(',') < 0 && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
+/* Город, где вы находитесь к этому пункту: последнее «Прибытие» до него. По нему ищем места, у которых город не указан,
+   иначе карта может найти одноимённое место в другом городе. */
+function cityContext(t) {
+  const map = new Map();
+  let city = '';
+  tripDays(t).forEach(d => dayItems(t, d).forEach(i => { if (kindOf(i) === 'arrive') city = i.title; map.set(i, city); }));
+  return map;
+}
+const withCity = (place, city) => !city || place.indexOf(',') >= 0 || place.toLowerCase().indexOf(city.toLowerCase()) >= 0 ? place : place + ', ' + city;
+const mapsUrl = (t, place, city) => 'https://www.google.com/maps/search/?api=1&query=' +
+  encodeURIComponent(city ? withCity(place, city) : t.dest && place.indexOf(',') < 0 && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
 
 const dayTotal = (t, d) => t.items.reduce((s, i) => i.date === d ? s + i.cost : s, 0);
 const totalCost = t => t.items.reduce((s, i) => s + i.cost, 0);
@@ -1196,6 +1206,7 @@ function watchDays() {
 /* ---- дни и пункты ---- */
 function renderDays(box, t, edit) {
   box.replaceChildren();
+  const ctx = cityContext(t);
   tripDays(t).forEach((d, k) => {
     const its = dayItems(t, d), parents = parentsOf(its);
     const adding = edit && ui.editing && !ui.editing.id && ui.editing.date === d;
@@ -1216,11 +1227,11 @@ function renderDays(box, t, edit) {
     let prev = null;
     its.forEach(it => {
       if (it.place) {
-        if (prev && prev.place.trim().toLowerCase() !== it.place.trim().toLowerCase()) rows.push(legRow(prev, it));
+        if (prev && prev.place.trim().toLowerCase() !== it.place.trim().toLowerCase()) rows.push(legRow(prev, it, ctx.get(prev), ctx.get(it)));
         prev = it;
       }
       rows.push(edit && ui.editing && ui.editing.id === it.id
-        ? h('li', { class: 'itf' }, itemForm(t, it, d)) : itemRow(t, it, edit, parents.get(it)));
+        ? h('li', { class: 'itf' }, itemForm(t, it, d)) : itemRow(t, it, edit, parents.get(it), ctx.get(it)));
     });
     if (adding) rows.push(h('li', { class: 'itf' }, itemForm(t, null, d)));
     if (rows.length) sec.append(h('ul', { class: 'tl' }, rows));
@@ -1248,19 +1259,24 @@ function addDay() {
 }
 function refresh() { renderHero(els.hero, cur, true); renderBudget(els.budget, cur, true); renderNav(els.nav, cur); renderPlan(); }
 
-function legRow(a, b) {
+function legRow(a, b, ca, cb) {
+  const qa = withCity(a.place, ca), qb = withCity(b.place, cb);
   const body = h('div', { class: 'lbody' });
-  const dir = h('a', { href: dirUrl(a.place, b.place), target: '_blank', rel: 'noopener' }, 'Маршрут');
+  const dir = h('a', { href: dirUrl(qa, qb), target: '_blank', rel: 'noopener' }, 'Маршрут');
   const run = () => {
     body.replaceChildren(h('span', { class: 'legpill busy' }, 'считаем расстояние…'));
-    legInfo(a.place, b.place).then(i => {
+    legInfo(qa, qb).then(i => {
       if (i.missing) {
         body.replaceChildren(h('span', { class: 'legpill busy' }, 'место не найдено на карте: «' + i.missing + '»'), dir);
         return;
       }
+      const far = i.line > 150000;                  // так далеко в одном дне бывает редко: скорее всего найден другой город
       body.replaceChildren();                       // append, а не replaceChildren с аргументами: false превратился бы в текст «false»
-      append(body, [h('span', { class: 'legpill', title: 'На машине' }, ico('car'), legText(i)),
-        i.walk && i.walk.s <= 10800 && h('span', { class: 'legpill', title: 'Пешком' }, ico('foot'), walkText(i.walk)), dir,
+      append(body, [far
+        ? h('span', { class: 'legpill warn' }, legText(i) + ' · проверьте город в адресе')
+        : [h('span', { class: 'legpill', title: 'На машине' }, ico('car'), legText(i)),
+          i.walk && i.walk.s <= 10800 && h('span', { class: 'legpill', title: 'Пешком' }, ico('foot'), walkText(i.walk))],
+        dir,
         h('span', { class: 'legname' }, 'от «' + a.place + '» · на карте: «' + i.pa.name + '» → «' + i.pb.name + '»' +
           (i.pa.approx || i.pb.approx ? ' · дом на карте не найден, показана улица: расстояние примерное' : ''))]);
     }, () => body.replaceChildren(h('span', { class: 'legpill busy' }, 'не удалось посчитать'),
@@ -1270,7 +1286,7 @@ function legRow(a, b) {
   return h('li', { class: 'it leg' }, h('div'), h('i', { class: 'ldot' }), body);
 }
 
-function itemRow(t, it, edit, parent) {
+function itemRow(t, it, edit, parent, city) {
   const kind = kindOf(it), guests = edit ? guestsOf(t) : [];
   const hasEnd = it.time && it.end && mins(it.end) > mins(it.time);
   const more = h('button', { class: 'more', type: 'button', 'aria-expanded': 'false', 'aria-label': 'Действия: ' + it.title,
@@ -1292,7 +1308,7 @@ function itemRow(t, it, edit, parent) {
     h('div', { class: 'ib' },
       h('div', { class: 'ititle' }, h('span', { class: 'sr' }, KINDS[kind].label + ': '), it.title),
       parent && h('div', { class: 'inside' }, 'во время «' + parent.title + '»'),
-      it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place), target: '_blank', rel: 'noopener' }, ico('pin'), ' ' + it.place)),
+      it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place, city), target: '_blank', rel: 'noopener' }, ico('pin'), ' ' + it.place)),
       it.note && h('span', { class: 'tag' }, it.note),
       it.conf > 0 && h('div', {}, confLabel),
       h('div', { class: 'acts' },
@@ -1314,7 +1330,7 @@ function itemForm(t, it, date) {
   const fStart = h('input', { class: 'inp sm', type: 'time', value: it ? it.time : '' });
   const fEnd = h('input', { class: 'inp sm', type: 'time', value: it ? it.end : '' });
   const fTitle = h('input', { class: 'inp sm', maxlength: 120, placeholder: 'Например: Музей Прадо', value: it ? it.title : '' });
-  const fPlace = h('input', { class: 'inp sm', maxlength: 160, placeholder: 'Адрес или название места', value: it ? it.place : '' });
+  const fPlace = h('input', { class: 'inp sm', maxlength: 160, placeholder: 'Адрес или название места, лучше с городом', value: it ? it.place : '' });
   const fCost = h('input', { class: 'inp sm', type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: '0', value: it && it.cost ? it.cost : '' });
   const fKind = h('select', { class: 'inp sm' }, h('option', { value: '' }, 'Определить по названию'),
     Object.keys(KINDS).map(k => h('option', { value: k }, KINDS[k].label)));
@@ -1453,6 +1469,10 @@ function buildDistPanel(t) {
   fillList();
   const mk = (ph, label) => h('input', { class: 'inp sm', maxlength: 160, list: 'places-list', autocomplete: 'off', placeholder: ph, 'aria-label': label });
   const fA = mk('Например: Алматы', 'Откуда'), fB = mk('Например: Бишкек', 'Куда');
+  const counts = {};
+  cityContext(t).forEach(v => { if (v) counts[v] = (counts[v] || 0) + 1; });
+  const fC = h('input', { class: 'inp sm', maxlength: 60, autocomplete: 'off', placeholder: 'Например: Астана', 'aria-label': 'Город для поиска мест',
+    value: Object.keys(counts).sort((x, y) => counts[y] - counts[x])[0] || '' });
   fA.addEventListener('focus', fillList); fB.addEventListener('focus', fillList);
   const out = h('div', { class: 'dres', 'aria-live': 'polite' });
   const say = (...kids) => out.replaceChildren(...kids);
@@ -1461,8 +1481,9 @@ function buildDistPanel(t) {
     if (!a || !b) { say(h('p', { class: 'muted' }, 'Укажите оба места.')); return; }
     if (a.toLowerCase() === b.toLowerCase()) { say(h('p', { class: 'muted' }, 'Это одно и то же место.')); return; }
     say(h('p', { class: 'muted' }, 'Считаем…'));
+    const city = fC.value.trim(), qa = withCity(a, city), qb = withCity(b, city);
     let i;
-    try { i = await legInfo(a, b); }
+    try { i = await legInfo(qa, qb); }
     catch (e) { say(h('p', { class: 'muted' }, 'Не удалось связаться с картой. Проверьте интернет и попробуйте ещё раз.')); return; }
     if (i.missing) { say(h('p', { class: 'muted' }, 'Не нашли на карте: «' + i.missing + '». Уточните название, например добавьте город.')); return; }
     say(h('div', { class: 'dr' },
@@ -1473,15 +1494,16 @@ function buildDistPanel(t) {
       i.road && h('div', { class: 'muted', style: 'margin:2px 0 0' }, 'По прямой: ' + fmtKm(i.line)),
       h('div', { class: 'muted', style: 'margin:2px 0 8px' }, 'На карте найдено: «' + i.pa.name + '» → «' + i.pb.name + '»' +
         (i.pa.approx || i.pb.approx ? '. Дом на карте не найден, показана улица, поэтому расстояние примерное.' : '')),
-      h('a', { href: dirUrl(a, b), target: '_blank', rel: 'noopener' }, 'Открыть маршрут в Google Maps')));
+      h('a', { href: dirUrl(qa, qb), target: '_blank', rel: 'noopener' }, 'Открыть маршрут в Google Maps')));
   }
   return h('section', { class: 'panel' }, h('h2', {}, 'Расстояние между местами'), list,
     h('form', { onsubmit: e => { e.preventDefault(); go(); } },
       h('label', { class: 'field' }, h('span', {}, 'Откуда'), fA),
       h('label', { class: 'field' }, h('span', {}, 'Куда'), fB),
+      h('label', { class: 'field' }, h('span', {}, 'Город для поиска мест'), fC),
       h('button', { class: 'btn primary', type: 'submit' }, 'Посчитать')),
     out,
-    h('p', { class: 'muted' }, 'Расстояние считают открытые сервисы (OpenStreetMap, Open-Meteo и OSRM), им отправляются названия мест. Если нашлось не то место, уточните название: добавьте улицу и город. Время приблизительное: на машине без пробок, остановок и очереди на границе, пешком из расчёта около 5 км/ч. Такие же расстояния показаны между соседними местами плана и между городами в шапке.'));
+    h('p', { class: 'muted' }, 'Расстояние считают открытые сервисы (OpenStreetMap, Open-Meteo и OSRM), им отправляются названия мест. Город подставляется к местам, у которых его нет, чтобы карта не находила одноимённые места в другом городе. Если нашлось не то место, уточните название: добавьте улицу. Время приблизительное: на машине без пробок, остановок и очереди на границе, пешком из расчёта около 5 км/ч. Такие же расстояния показаны между соседними местами плана и между городами в шапке.'));
 }
 
 /* ---- поделиться и календарь ---- */
