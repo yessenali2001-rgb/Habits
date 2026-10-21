@@ -305,9 +305,6 @@ textarea.inp { resize:vertical; }
 .chip button:hover { color:var(--bad); }
 .settings > summary { cursor:pointer; font-weight:600; font-size:15px; }
 .settings[open] > summary { margin-bottom:14px; }
-.qrmodal { position:fixed; inset:0; z-index:60; background:rgba(10,14,30,.72); display:grid; place-items:center; padding:16px; overflow:auto; }
-.qrcard { background:var(--surface); border-radius:20px; padding:18px; width:min(94vw, 680px); box-shadow:var(--shadow); }
-.qr { display:block; width:100%; max-width:640px; height:auto; margin:0 auto 14px; background:#fff; border-radius:10px; image-rendering:pixelated; }
 .banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between; margin-bottom:18px; }
 .banner b { font-size:15px; }
 
@@ -364,7 +361,6 @@ textarea.inp { resize:vertical; }
   <noscript><p class="lead">Для работы планировщика нужен JavaScript.</p></noscript>
 </div>
 
-<script src="qrcode.js"></script>
 <script>
 'use strict';
 /* ================= константы и утилиты ================= */
@@ -760,11 +756,11 @@ async function unpack(str) {
   return JSON.parse(new TextDecoder().decode(raw));
 }
 // e-mail участников в ссылку не попадают — только имена
-const packTrip = t => ({ v: 2, u: t.updated, k: t.id, t: t.title, d: t.dest, s: t.start, e: t.end, c: t.currency, l: t.labels,
+const packTrip = t => ({ v: 2, k: t.id, t: t.title, d: t.dest, s: t.start, e: t.end, c: t.currency, l: t.labels,
   p: t.people.map(p => p.name),
   i: t.items.map(i => [i.id, i.date, i.time, i.end, i.title, i.place, i.note, i.cost, i.kind, i.conf]) });
 const unpackTrip = o => !o || (o.v !== 1 && o.v !== 2) ? null : normTrip({
-  id: o.k, title: o.t, dest: o.d, start: o.s, end: o.e, currency: o.c, labels: o.l, updated: o.u,
+  id: o.k, title: o.t, dest: o.d, start: o.s, end: o.e, currency: o.c, labels: o.l,
   people: (Array.isArray(o.p) ? o.p : []).map(n => ({ name: n, email: '' })),
   items: (Array.isArray(o.i) ? o.i : []).map(a => Array.isArray(a)
     ? { id: a[0], date: a[1], time: a[2], end: a[3], title: a[4], place: a[5], note: a[6], cost: a[7], kind: a[8], conf: a[9] } : null)
@@ -1046,7 +1042,6 @@ function route() {
   const hs = location.hash, my = ++routeTok;
   ui.editing = null; cur = null; els = {};
   if (spy) { spy.disconnect(); spy = null; }
-  document.removeEventListener('keydown', qrKey);
   window.scrollTo(0, 0);
   if (hs.indexOf('#s=') === 0) return openShared(hs.slice(3), my);
   if (hs.indexOf('#trip=') === 0) {
@@ -1539,8 +1534,6 @@ function buildSharePanel(t) {
   els.wa = h('a', { class: 'btn', target: '_blank', rel: 'noopener' }, 'WhatsApp');
   els.mail = h('a', { class: 'btn' }, 'E-mail');
   els.len = h('p', { class: 'muted hide' });
-  els.qr = h('div', { class: 'qrmodal hide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'QR-код для телефона',
-    onclick: e => { if (e.target === els.qr) closeQr(); } });
   els.gcal = h('a', { class: 'btn primary', target: '_blank', rel: 'noopener' });
   els.gnote = h('p', { class: 'muted' });
   return h('div', { class: 'panel' },
@@ -1554,50 +1547,12 @@ function buildSharePanel(t) {
         if (shareLink) navigator.share({ title: t.title, text: 'План поездки «' + t.title + '»', url: shareLink }).catch(() => {});
       } }, 'Поделиться…'),
       els.tg, els.wa, els.mail),
-    h('div', { class: 'row', style: 'margin-top:10px' }, h('button', { class: 'btn', type: 'button', onclick: toggleQr }, 'Перенести на телефон (QR-код)')),
-    els.qr,
     els.len,
     h('hr', { class: 'sep' }),
     h('h2', {}, 'Календарь'),
     h('div', { class: 'row' }, els.gcal,
       h('button', { class: 'btn', onclick: () => downloadICS(t) }, 'Скачать .ics (весь план)')),
     els.gnote);
-}
-/* QR-код в большом окне: плотный код надёжнее считывается, когда он крупный. */
-function renderQr() {
-  const box = els.qr;
-  box.replaceChildren();
-  let qr = null;
-  if (typeof qrcode === 'function') {
-    try { qr = qrcode(0, 'L'); qr.addData(shareLink, 'Byte'); qr.make(); } catch (e) { qr = null; }
-  }
-  const close = h('button', { class: 'btn', type: 'button', onclick: closeQr }, 'Закрыть');
-  if (!qr) {
-    append(box, [h('div', { class: 'qrcard' }, h('p', { class: 'muted', style: 'margin-top:0' }, typeof qrcode === 'function'
-      ? 'План слишком большой для QR-кода. Отправьте ссылку через Telegram.' : 'QR-код не загрузился. Отправьте ссылку через Telegram.'), close)]);
-    return close;
-  }
-  const n = qr.getModuleCount(), m = 4, sc = Math.min(8, Math.max(3, Math.ceil(600 / (n + 2 * m))));
-  const cv = h('canvas', { class: 'qr', width: (n + 2 * m) * sc, height: (n + 2 * m) * sc, role: 'img', 'aria-label': 'QR-код со ссылкой на план' });
-  const g = cv.getContext('2d');
-  g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
-  g.fillStyle = '#000';
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) g.fillRect((c + m) * sc, (r + m) * sc, sc, sc);
-  append(box, [h('div', { class: 'qrcard' }, cv,
-    h('p', { class: 'muted', style: 'margin-top:0' },
-      'Наведите камеру телефона на код и откройте ссылку, затем нажмите «Сохранить себе». Если эта поездка уже есть на телефоне, она заменится копией с компьютера. Если код не считывается, отправьте ссылку через Telegram.'),
-    close)]);
-  return close;
-}
-function closeQr() { els.qr.classList.add('hide'); document.removeEventListener('keydown', qrKey); }
-function qrKey(e) { if (e.key === 'Escape' && els.qr) closeQr(); }
-function toggleQr() {
-  if (!shareLink || !els.qr) return;
-  if (!els.qr.classList.contains('hide')) { closeQr(); return; }
-  const close = renderQr();
-  els.qr.classList.remove('hide');
-  document.addEventListener('keydown', qrKey);
-  close.focus();
 }
 async function copyLink() {
   if (!shareLink) return;
@@ -1622,7 +1577,6 @@ function syncShare() {
     if (my !== shareTok || cur !== t) return;
     shareLink = baseUrl() + '#s=' + p;
     els.link.value = shareLink;
-    if (els.qr && !els.qr.classList.contains('hide')) renderQr();                                     // QR открыт: обновляем под новую ссылку
     const msg = 'План поездки «' + t.title + '»';
     els.tg.href = 'https://t.me/share/url?url=' + encodeURIComponent(shareLink) + '&text=' + encodeURIComponent(msg);
     els.wa.href = 'https://wa.me/?text=' + encodeURIComponent(msg + ' ' + shareLink);
@@ -1665,10 +1619,7 @@ async function openShared(payload, my) {
 function importTrip(t) {
   const i = state.trips.findIndex(x => x.id === t.id);
   if (i >= 0) {
-    const newer = state.trips[i].updated > t.updated;
-    if (!confirm(newer
-      ? 'Ваша копия этой поездки новее, чем в ссылке: вы правили её позже. Всё равно заменить старой версией? Ваши правки в ней пропадут.'
-      : 'Эта поездка уже есть у вас. Заменить вашу копию версией из ссылки? Ваши правки в ней пропадут.')) return;
+    if (!confirm('Эта поездка уже есть у вас. Заменить вашу копию обновлённым планом? Ваши правки в ней пропадут.')) return;
     t.people = state.trips[i].people.length ? state.trips[i].people : t.people;   // свои приглашённые не теряем
     state.trips[i] = t;
   } else state.trips.push(t);
