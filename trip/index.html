@@ -269,6 +269,8 @@ textarea.inp { resize:vertical; }
 .iplace { font-size:13.5px; overflow-wrap:anywhere; }
 .iplace a { color:var(--muted); text-decoration:none; }
 .iplace a:hover { color:var(--accent-tx); text-decoration:underline; }
+.iplace a.dg { display:inline-block; margin-left:2px; padding:0 9px; border:1px solid var(--accent-tx); border-radius:99px; color:var(--accent-tx); font-size:12px; font-weight:600; text-decoration:none; }
+.iplace a.dg:hover { background:var(--surface2); text-decoration:none; }
 .tag { display:inline-block; margin:5px 6px 0 0; font-size:12.5px; background:var(--surface2); color:var(--muted); border-radius:8px; padding:2px 9px; overflow-wrap:anywhere; }
 .conf { display:inline-flex; align-items:center; gap:8px; margin-top:6px; font-size:13px; font-weight:600; color:var(--warn); cursor:pointer; }
 .conf.yes { color:var(--ok); }
@@ -1326,7 +1328,7 @@ function itemRow(t, it, edit, parent, city) {
       h('div', { class: 'ititle' }, h('span', { class: 'sr' }, KINDS[kind].label + ': '), it.title),
       parent && h('div', { class: 'inside' }, 'во время «' + parent.title + '»'),
       it.place && h('div', { class: 'iplace' }, h('a', { href: mapsUrl(t, it.place, city), target: '_blank', rel: 'noopener' }, ico('pin'), ' ' + it.place),
-        dgisSearch(it.place, city) && [' · ', h('a', { class: 'dg', href: dgisSearch(it.place, city), target: '_blank', rel: 'noopener', title: 'Открыть в 2ГИС' }, '2ГИС')]),
+        dgisSearch(it.place, city) && [' ', h('a', { class: 'dg', href: dgisSearch(it.place, city), target: '_blank', rel: 'noopener', title: 'Открыть в 2ГИС' }, '2ГИС')]),
       it.note && h('span', { class: 'tag' }, it.note),
       it.conf > 0 && h('div', {}, confLabel),
       h('div', { class: 'acts' },

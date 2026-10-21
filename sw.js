@@ -2,7 +2,7 @@
    Кэширует оболочку приложения, чтобы оно открывалось без сети.
    Запросы к Apps Script никогда не кэшируются: данные должны быть свежими. */
 
-const CACHE = 'habits-v7';
+const CACHE = 'habits-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -36,6 +36,12 @@ self.addEventListener('fetch', event => {
   if (req.url.indexOf('script.google.com') >= 0 ||
       req.url.indexOf('googleusercontent.com') >= 0) return;
 
+  // страницы: сначала сеть, чтобы телефон не показывал вчерашнюю версию; нет сети или она медленная — копия из кэша
+  if (req.mode === 'navigate' || req.destination === 'document') {
+    event.respondWith(networkFirst(req));
+    return;
+  }
+
   event.respondWith(
     caches.match(req).then(hit => {
       const net = fetch(req).then(res => {
@@ -49,3 +55,23 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+
+function networkFirst(req) {
+  return new Promise(resolve => {
+    let done = false;
+    const cached = caches.match(req);
+    const answer = res => { if (!done) { done = true; resolve(res); } };
+    const timer = setTimeout(() => cached.then(hit => { if (hit) answer(hit); }), 4000);
+    fetch(req).then(res => {
+      clearTimeout(timer);
+      if (res && res.status === 200 && res.type === 'basic') {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(req, copy));
+      }
+      answer(res);
+    }).catch(() => {
+      clearTimeout(timer);
+      cached.then(hit => answer(hit || Response.error()));
+    });
+  });
+}
