@@ -311,7 +311,6 @@ textarea.inp { resize:vertical; }
 .howto summary { cursor:pointer; font-weight:600; }
 .howto ol { margin:10px 0; padding-left:20px; }
 .howto li { margin-bottom:6px; }
-pre.sql { max-height:220px; overflow:auto; margin:10px 0; padding:12px; border-radius:12px; background:var(--surface2); font-size:12px; line-height:1.45; white-space:pre; }
 .banner { display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between; margin-bottom:18px; }
 .banner b { font-size:15px; }
 
@@ -1042,90 +1041,95 @@ const SAMPLES = [
   { id: SAMPLE_ID, title: 'План из вашей таблицы: Алматы – Бишкек', note: '11–15 декабря · 5 дней · расходы 97 000 ₸', build: sampleTrip }
 ];
 
-/* ================= синхронизация между устройствами (Supabase) ================= */
-/* Вся база поездок лежит под секретным кодом: сервер знает только его хеш, читать и писать можно через две функции (trip/sync.sql).
+/* ================= хранение в GitHub и синхронизация между устройствами ================= */
+/* Поездки лежат файлом trip/data.json на отдельной ветке этого же открытого репозитория. Читать файл может любой, поэтому без токена
+   страница показывает поездки владельца только для просмотра; записывать можно только с токеном (его вводит владелец).
    Поездки склеиваются по времени последней правки: у каждой побеждает более свежая копия; удалённые помечаются отдельно. */
-const SYNC_KEY = 'tripSync.v1';
-const DEFAULT_SYNC = { url: '', key: '' };      // можно вписать адрес и открытый ключ проекта: тогда на других устройствах нужен только код
-const SYNC_SQL = `-- Синхронизация поездок между устройствами (Supabase).
--- Выполните один раз: Supabase -> SQL Editor -> New query -> вставьте -> Run.
--- Таблица закрыта для всех. Читать и писать можно только через две функции и только зная секретный код синхронизации
--- (в таблице хранится лишь его хеш), поэтому открытый ключ anon из настроек проекта ничего чужого не даёт.
-
-create table if not exists public.trip_sync (
-  code_hash  text primary key,
-  data       jsonb not null,
-  updated_at timestamptz not null default now()
-);
-
-alter table public.trip_sync enable row level security;
-revoke all on public.trip_sync from anon, authenticated;
-
-create or replace function public.trip_sync_get(_code text)
-returns jsonb
-language sql
-security definer
-set search_path = ''
-as $$
-  select data from public.trip_sync
-  where code_hash = encode(sha256(convert_to(_code, 'utf8')), 'hex')
-$$;
-
-create or replace function public.trip_sync_put(_code text, _data jsonb)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if _code is null or length(_code) < 16 then
-    raise exception 'sync code is too short (16 characters at least)';
-  end if;
-  if pg_column_size(_data) > 3000000 then
-    raise exception 'data is too large';
-  end if;
-  insert into public.trip_sync (code_hash, data)
-  values (encode(sha256(convert_to(_code, 'utf8')), 'hex'), _data)
-  on conflict (code_hash) do update set data = excluded.data, updated_at = now();
-end
-$$;
-
-revoke all on function public.trip_sync_get(text) from public;
-revoke all on function public.trip_sync_put(text, jsonb) from public;
-grant execute on function public.trip_sync_get(text) to anon;
-grant execute on function public.trip_sync_put(text, jsonb) to anon;
-`;
-let sync = { url: DEFAULT_SYNC.url, key: DEFAULT_SYNC.key, code: '', last: 0, error: '' };
-let syncBusy = false, syncAgain = false, syncTimer = 0;
-const syncOn = () => !!(sync.url && sync.key && sync.code);
+const SYNC_KEY = 'tripSync.v2', PUB_KEY = 'tripPublic.v1';
+const GH = { api: 'https://api.github.com', raw: 'https://raw.githubusercontent.com', owner: 'yessenali2001-rgb', repo: 'Habits', main: 'main', branch: 'trip-data', path: 'trip/data.json' };
+const ghRepo = () => GH.api + '/repos/' + GH.owner + '/' + GH.repo;
+let sync = { token: '', last: 0, error: '', auth: false };
+let syncBusy = false, syncAgain = false, syncTimer = 0, forceWrite = false;
+let pub = null, pubWait = null;                  // поездки владельца для просмотра без токена; null — ещё не загружены
+const syncOn = () => !!sync.token;
 function loadSync() {
   try {
     const o = JSON.parse(localStorage.getItem(SYNC_KEY));
-    if (o && typeof o === 'object') ['url', 'key', 'code'].forEach(k => { if (typeof o[k] === 'string' && o[k]) sync[k] = o[k]; });
-    if (o && +o.last > 0) sync.last = +o.last;
+    if (o && typeof o === 'object') {
+      if (typeof o.token === 'string') sync.token = o.token;
+      if (+o.last > 0) sync.last = +o.last;
+    }
   } catch (e) {}
 }
-function saveSync() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); } catch (e) {} }
-const cleanUrl = u => u.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
-const okUrl = u => /^https?:\/\/[^\s/]+$/.test(u);
-function newCode() {
-  const b = new Uint8Array(16); crypto.getRandomValues(b);
-  return 'wp-' + [...b].map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 24);
-}
+function saveSync() { try { localStorage.setItem(SYNC_KEY, JSON.stringify({ token: sync.token, last: sync.last })); } catch (e) {} }
+const okToken = s => /^\w{20,255}$/.test(s);
 
-async function rpc(fn, args) {
-  const c = new AbortController(), tm = setTimeout(() => c.abort(), 15000);
+async function gh(method, path, body, accept) {
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), 20000);
+  const headers = { Accept: accept || 'application/vnd.github+json' };
+  if (sync.token) headers.Authorization = 'Bearer ' + sync.token;
+  if (body) headers['Content-Type'] = 'application/json';
   try {
-    const r = await fetch(sync.url + '/rest/v1/rpc/' + fn, { method: 'POST', signal: c.signal,
-      headers: { apikey: sync.key, Authorization: 'Bearer ' + sync.key, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
-    if (!r.ok) {
-      let m = '';
-      try { const j = await r.json(); m = j.message || ''; } catch (e) {}
-      throw new Error(r.status === 404 ? 'функции не найдены: выполните SQL из инструкции' : r.status === 401 || r.status === 403 ? 'ключ не подходит' : (m || 'ошибка ' + r.status));
-    }
-    const text = await r.text();
-    return text ? JSON.parse(text) : null;
+    return await fetch(ghRepo() + path, { method, headers, signal: c.signal, body: body ? JSON.stringify(body) : undefined });
   } finally { clearTimeout(tm); }
+}
+async function ghError(r) {
+  let m = '';
+  try { m = (await r.json()).message || ''; } catch (e) {}
+  const limited = r.headers.get('x-ratelimit-remaining') === '0' || /rate limit/i.test(m);
+  const e = new Error(
+    r.status === 401 ? 'токен не подходит или срок его действия закончился'
+    : r.status === 403 && limited ? 'GitHub временно ограничил число запросов, подождите немного'
+    : r.status === 403 ? 'у токена нет права записи: нужен доступ Contents: Read and write'
+    : r.status === 404 ? 'токену недоступен репозиторий ' + GH.repo + ': выберите его при создании токена'
+    : m ? 'GitHub: ' + m : 'ошибка ' + r.status);
+  e.status = r.status;
+  e.auth = r.status === 401 || r.status === 404 || (r.status === 403 && !limited);
+  return e;
+}
+const fileUrl = () => '/contents/' + GH.path + '?ref=' + GH.branch + '&_=' + Date.now();   // _ обходит кэш браузера: данные нужны свежие
+async function ghRead() {
+  const r = await gh('GET', fileUrl());
+  if (r.status === 404) return { sha: '', data: null };      // файла или ветки ещё нет: поездок в облаке пока нет
+  if (!r.ok) throw await ghError(r);
+  const j = await r.json();
+  let text = '';
+  if (j.encoding === 'base64' && typeof j.content === 'string' && j.content) text = new TextDecoder().decode(unb64u(j.content.replace(/\s/g, '')));
+  else {                                                      // большой файл: GitHub не кладёт его в ответ, берём в сыром виде
+    const r2 = await gh('GET', fileUrl(), null, 'application/vnd.github.raw+json');
+    if (!r2.ok) throw await ghError(r2);
+    text = await r2.text();
+  }
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) {}
+  return { sha: j.sha || '', data };
+}
+/* Данные лежат на своей ветке, чтобы запись не пересобирала сайт и не засоряла историю main. Ветка создаётся при первой записи. */
+async function ensureBranch() {
+  if ((await gh('GET', '/git/ref/heads/' + GH.branch)).ok) return;
+  const r = await gh('GET', '/git/ref/heads/' + GH.main);
+  if (!r.ok) throw await ghError(r);
+  const sha = ((await r.json()).object || {}).sha;
+  const c = await gh('POST', '/git/refs', { ref: 'refs/heads/' + GH.branch, sha });
+  if (!c.ok && c.status !== 422) throw await ghError(c);      // 422: ветку только что создали с другого устройства
+}
+async function ghWrite(sha, data) {
+  if (!sha) await ensureBranch();
+  const bytes = new TextEncoder().encode(JSON.stringify(data));
+  const body = { message: 'Поездки: обновление данных', content: btoa(Array.from(bytes, x => String.fromCharCode(x)).join('')), branch: GH.branch };
+  if (sha) body.sha = sha;
+  const r = await gh('PUT', '/contents/' + GH.path, body);
+  if (!r.ok) throw await ghError(r);
+}
+const ghMsg = e => e.name === 'AbortError' ? 'нет ответа от GitHub' : e.message === 'Failed to fetch' ? 'нет связи с GitHub' : (e.message || 'ошибка');
+
+/* В файл на GitHub e-mail участников не попадают: он открытый. Свои адреса устройство помнит по имени. */
+const pubTrip = t => Object.assign({}, t, { people: t.people.map(p => ({ name: p.name, email: '' })) });
+function keepMails(r, mine) {
+  r.people.forEach(p => {
+    const m = mine.people.find(x => x.email && x.name.toLowerCase() === p.name.toLowerCase());
+    if (m) p.email = m.email;
+  });
 }
 
 /* Склеивает облачную копию с локальной. Возвращает, изменилось ли что-то здесь и нужно ли отправить что-то в облако. */
@@ -1145,7 +1149,7 @@ function mergeRemote(remote) {
     if ((state.deleted[id] || 0) >= r.updated) return;
     const mine = state.trips.find(t => t.id === id);
     if (!mine) { state.trips.push(r); changed = true; }
-    else if (r.updated > mine.updated) { Object.assign(mine, r); changed = true; }     // на месте: открытая страница не теряет ссылку на поездку
+    else if (r.updated > mine.updated) { keepMails(r, mine); Object.assign(mine, r); changed = true; }     // на месте: открытая страница не теряет ссылку на поездку
   });
   const ids = Object.keys(state.deleted);
   if (ids.length > 100) ids.sort((a, b) => state.deleted[a] - state.deleted[b]).slice(0, ids.length - 100).forEach(id => { delete state.deleted[id]; });
@@ -1157,15 +1161,19 @@ function mergeRemote(remote) {
 async function syncNow() {
   if (!syncOn()) return;
   if (syncBusy) { syncAgain = true; return; }
-  syncBusy = true; sync.error = ''; paintSync();
+  syncBusy = true; sync.error = ''; sync.auth = false; paintSync();
   try {
-    const remote = await rpc('trip_sync_get', { _code: sync.code });
-    const r = mergeRemote(remote);
-    if (r.changed) { save(true); rerender(); }
-    if (r.needPush) await rpc('trip_sync_put', { _code: sync.code, _data: { v: 1, trips: state.trips, deleted: state.deleted } });
+    for (let n = 0; ; n++) {
+      const { sha, data } = await ghRead();
+      const r = mergeRemote(data);
+      if (r.changed) { save(true); rerender(); }
+      if (!r.needPush && !forceWrite) break;
+      try { await ghWrite(sha, { v: 1, at: Date.now(), trips: state.trips.map(pubTrip), deleted: state.deleted }); forceWrite = false; break; }
+      catch (e) { if ((e.status === 409 || e.status === 422) && n < 2) continue; throw e; }   // кто-то записал раньше нас: читаем заново и склеиваем
+    }
     sync.last = Date.now();
   } catch (e) {
-    sync.error = e.name === 'AbortError' ? 'нет ответа от сервера' : (e.message === 'Failed to fetch' ? 'нет связи с сервером' : (e.message || 'ошибка'));
+    sync.error = ghMsg(e); sync.auth = !!e.auth;
   } finally {
     syncBusy = false; saveSync(); paintSync();
     if (syncAgain) { syncAgain = false; syncSoon(); }
@@ -1174,7 +1182,45 @@ async function syncNow() {
 function syncSoon() {
   if (!syncOn()) return;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(syncNow, 1500);
+  syncTimer = setTimeout(syncNow, 2000);
+}
+/* Подключает запись: пробуем сразу записать файл, чтобы неверный токен или нехватку прав увидеть здесь, а не при первой правке. */
+async function connect(token) {
+  sync.token = token; sync.error = ''; sync.auth = false; sync.last = 0; forceWrite = true; saveSync();
+  await syncNow();
+  if (sync.auth) {
+    const m = sync.error;
+    sync.token = ''; sync.error = ''; sync.auth = false; forceWrite = false; saveSync();
+    toast('Не получилось подключиться: ' + m, true);
+    return false;
+  }
+  toast(sync.error ? 'Подключено, но есть ошибка: ' + sync.error : 'Сохранение в GitHub включено', !!sync.error);
+  return true;
+}
+
+/* ---- поездки владельца без токена: только просмотр ---- */
+function loadPublic(force) {
+  if (syncOn() && !force) return Promise.resolve();
+  if (pubWait) return pubWait;
+  if (!pub) {
+    try { const o = JSON.parse(localStorage.getItem(PUB_KEY)); if (o && Array.isArray(o.trips)) pub = o.trips.map(normTrip).filter(Boolean); } catch (e) {}
+  }
+  pubWait = (async () => {
+    let data = null;
+    try { data = (await ghRead()).data; }
+    catch (e) {
+      try {                                          // запасной путь, если GitHub API сейчас не отвечает или лимит исчерпан
+        const r = await fetch(GH.raw + '/' + GH.owner + '/' + GH.repo + '/' + GH.branch + '/' + GH.path + '?_=' + Date.now());
+        if (r.ok) data = await r.json();
+      } catch (_) {}
+    }
+    if (data && Array.isArray(data.trips)) {
+      const del = data.deleted && typeof data.deleted === 'object' ? data.deleted : {};
+      pub = data.trips.slice(0, 200).map(normTrip).filter(t => t && !(+del[t.id] >= t.updated));
+      try { localStorage.setItem(PUB_KEY, JSON.stringify({ trips: pub })); } catch (e) {}
+    } else if (!pub) pub = [];
+  })().then(() => { pubWait = null; rerender(); }, () => { pubWait = null; });
+  return pubWait;
 }
 /* Показываем пришедшие изменения, не мешая тому, кто сейчас печатает. */
 function rerender() {
@@ -1193,90 +1239,48 @@ function paintSync() {
     : sync.last ? 'Синхронизировано в ' + new Date(sync.last).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'Ещё не синхронизировано';
   els.syncStatus.className = 'sstat' + (sync.error ? ' bad' : '');
 }
-const cfgLink = () => baseUrl() + '#cfg=' + b64u(new TextEncoder().encode(JSON.stringify({ u: sync.url, k: sync.key, c: sync.code })));
+const pubLink = t => baseUrl() + '#pub=' + encodeURIComponent(t.id);
 
 function syncPanel() {
   if (syncOn()) {
     els.syncStatus = h('p', { class: 'sstat' });
     const panel = h('section', { class: 'panel sync' },
-      h('h2', {}, 'Синхронизация включена'),
+      h('h2', {}, 'Поездки сохраняются в GitHub'),
       els.syncStatus,
-      h('p', { class: 'muted', style: 'margin-top:0' }, 'Поездки сами совпадают на всех устройствах, где введён тот же код. Правки отправляются через пару секунд после изменения.'),
+      h('p', { class: 'muted', style: 'margin-top:0' }, 'Все ваши поездки лежат в файле ' + GH.path + ' (ветка ' + GH.branch + ') открытого репозитория ' + GH.repo + ': любой, кто откроет эту страницу, увидит их, но только для просмотра. Менять их можно только с вашим токеном. На всех устройствах с токеном поездки совпадают, правки отправляются через пару секунд. E-mail попутчиков в GitHub не попадают: они остаются на том устройстве, где введены.'),
       h('div', { class: 'row' },
         h('button', { class: 'btn', type: 'button', onclick: () => { toast('Синхронизируем…'); syncNow(); } }, 'Синхронизировать сейчас'),
-        h('button', { class: 'btn', type: 'button', onclick: async () => {
-          const link = cfgLink();
-          try { await navigator.clipboard.writeText(link); toast('Ссылка для телефона скопирована'); }
-          catch (e) { prompt('Скопируйте ссылку и откройте её на телефоне', link); }
-        } }, 'Ссылка для телефона'),
         h('button', { class: 'btn danger', type: 'button', onclick: () => {
-          if (!confirm('Отключить синхронизацию на этом устройстве? Поездки останутся здесь и в облаке.')) return;
-          sync.code = ''; saveSync(); openList();
+          if (!confirm('Отключить сохранение на этом устройстве? Поездки останутся здесь и на GitHub.')) return;
+          sync.token = ''; saveSync(); pub = null; openList(); loadPublic();
         } }, 'Отключить')),
-      h('p', { class: 'muted' }, 'Ссылка для телефона содержит ваш секретный код: отправляйте её только себе.'));
+      h('p', { class: 'muted' }, 'Токен хранится только в этом браузере и никуда не отправляется, кроме GitHub. На телефоне и других устройствах введите его так же, как здесь.'));
     paintSync();
     return panel;
   }
-  const url = h('input', { class: 'inp sm', placeholder: 'https://xxxx.supabase.co', autocomplete: 'off', 'aria-label': 'Адрес проекта Supabase', value: sync.url });
-  const key = h('input', { class: 'inp sm', placeholder: 'Ключ «anon public»', autocomplete: 'off', 'aria-label': 'Открытый ключ anon', value: sync.key });
-  const code = h('input', { class: 'inp sm', placeholder: 'Секретный код, 16 символов и больше', autocomplete: 'off', 'aria-label': 'Код синхронизации', value: sync.code });
+  const token = h('input', { class: 'inp sm', type: 'password', placeholder: 'Токен github_pat_…', autocomplete: 'off', 'aria-label': 'Токен GitHub' });
   const turnOn = async () => {
-    const u = cleanUrl(url.value), k = key.value.trim(), c = code.value.trim();
-    if (!okUrl(u)) { toast('Адрес должен выглядеть как https://xxxx.supabase.co', true); url.focus(); return; }
-    if (!k || /\s/.test(k)) { toast('Вставьте ключ «anon public» целиком', true); key.focus(); return; }
-    if (c.length < 16) { toast('Код: не короче 16 символов. Нажмите «Придумать код»', true); code.focus(); return; }
-    sync = Object.assign(sync, { url: u, key: k, code: c, error: '', last: 0 });
-    saveSync();
-    try { await rpc('trip_sync_get', { _code: c }); }
-    catch (e) { sync.code = ''; saveSync(); toast('Не получилось подключиться: ' + (e.message === 'Failed to fetch' ? 'нет связи с сервером' : e.message), true); return; }
-    toast('Синхронизация включена');
-    openList(); syncNow();
+    const k = token.value.trim();
+    if (!okToken(k)) { toast('Вставьте токен целиком: он начинается с github_pat_', true); token.focus(); return; }
+    if (await connect(k)) openList();
   };
   return h('section', { class: 'panel sync' },
-    h('h2', {}, 'Синхронизация между устройствами'),
-    h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'Сейчас поездки хранятся только в этом браузере. Чтобы они одинаково показывались на компьютере и телефоне, подключите свою бесплатную базу Supabase. Это нужно сделать один раз.'),
+    h('h2', {}, 'Сохранение в GitHub (для владельца)'),
+    h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'Сейчас поездки, которые вы вводите, хранятся только в этом браузере. Чтобы они одинаково показывались на компьютере и телефоне и были видны другим, подключите сохранение в GitHub. Это нужно сделать один раз на каждом вашем устройстве. Другие посетители страницы токен не вводят: они видят ваши поездки только для просмотра.'),
     h('details', { class: 'howto' },
-      h('summary', {}, 'Как создать базу (5 минут)'),
+      h('summary', {}, 'Как получить токен (3 минуты)'),
       h('ol', {},
-        h('li', {}, 'Откройте supabase.com, войдите (можно через GitHub) и нажмите New project: любое имя, придумайте пароль базы, ближайший регион. Подождите пару минут.'),
-        h('li', {}, 'Слева выберите SQL Editor, New query, вставьте код ниже и нажмите Run.'),
-        h('li', {}, 'Слева Project Settings, API: скопируйте Project URL и ключ «anon public» в поля ниже.'),
-        h('li', {}, 'Нажмите «Придумать код» (или впишите свой, не короче 16 символов) и «Включить».'),
-        h('li', {}, 'На телефоне откройте «Ссылку для телефона» из этого же блока, и там всё подключится само.')),
-      h('pre', { class: 'sql' }, SYNC_SQL),
-      h('button', { class: 'btn tiny', type: 'button', onclick: async () => {
-        try { await navigator.clipboard.writeText(SYNC_SQL); toast('SQL скопирован'); } catch (e) { toast('Выделите код и скопируйте вручную', true); }
-      } }, 'Скопировать SQL'),
-      h('p', { class: 'muted' }, 'Бесплатный проект Supabase засыпает, если неделю не заходить. Его можно разбудить кнопкой в панели Supabase, данные сохраняются.')),
-    h('label', { class: 'field' }, h('span', {}, 'Адрес проекта'), url),
-    h('label', { class: 'field' }, h('span', {}, 'Открытый ключ'), key),
-    h('label', { class: 'field' }, h('span', {}, 'Секретный код'), code),
+        h('li', {}, h('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener' }, 'Откройте страницу создания токена'), ' (войдите в GitHub под тем же аккаунтом, где лежит репозиторий ' + GH.repo + ').'),
+        h('li', {}, 'Token name: любое, например trip. Expiration: поставьте максимум.'),
+        h('li', {}, 'Repository access: Only select repositories, выберите ' + GH.repo + '.'),
+        h('li', {}, 'Permissions, Repository permissions: найдите Contents и поставьте Read and write. Больше ничего не нужно.'),
+        h('li', {}, 'Нажмите Generate token и скопируйте токен (он показывается один раз), вставьте его ниже и нажмите «Включить».'),
+        h('li', {}, 'На телефоне откройте эту же страницу и вставьте тот же токен (сохраните его в заметках или менеджере паролей, GitHub больше его не покажет) либо создайте токен заново.')),
+      h('p', { class: 'muted' }, 'Токен хранится только в этом браузере. Он даёт право менять файлы репозитория ' + GH.repo + ', поэтому не показывайте его никому. Если токен потерялся или попал не туда, удалите его на странице GitHub, где вы его создавали.')),
+    h('label', { class: 'field' }, h('span', {}, 'Токен GitHub'), token),
     h('div', { class: 'row' },
-      h('button', { class: 'btn', type: 'button', onclick: () => { code.value = newCode(); } }, 'Придумать код'),
       h('button', { class: 'btn primary', type: 'button', onclick: turnOn }, 'Включить')),
-    h('p', { class: 'muted' }, 'Код нужен, чтобы читать и менять ваши поездки; в базе хранится только его хеш. Не показывайте его другим.'));
-}
-
-/* Ссылка «для телефона»: подтверждаем, прежде чем подключаться. */
-function openCfg(payload) {
-  setBack(true);
-  document.title = 'Синхронизация';
-  let c = null;
-  try { c = JSON.parse(new TextDecoder().decode(unb64u(payload))); } catch (e) {}
-  const u = c && typeof c.u === 'string' ? cleanUrl(c.u) : '', k = c && typeof c.k === 'string' ? c.k.trim() : '', code = c && typeof c.c === 'string' ? c.c.trim() : '';
-  if (!okUrl(u) || !k || code.length < 16) {
-    show(h('div', { class: 'panel' }, h('h2', {}, 'Ссылка повреждена'), h('p', { class: 'lead' }, 'Скопируйте «Ссылку для телефона» ещё раз.')));
-    return;
-  }
-  show(h('div', { class: 'panel' },
-    h('h2', {}, 'Подключить синхронизацию?'),
-    h('p', { class: 'lead' }, 'Поездки на этом устройстве будут храниться в базе ' + new URL(u).host + ' и совпадать с остальными устройствами. Код заканчивается на «' + code.slice(-4) + '».'),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn primary', type: 'button', onclick: () => {
-        sync = Object.assign(sync, { url: u, key: k, code, error: '', last: 0 }); saveSync();
-        location.hash = ''; toast('Синхронизация включена'); syncNow();
-      } }, 'Подключить'),
-      h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = ''; } }, 'Отмена'))));
+    h('p', { class: 'muted' }, 'Репозиторий открытый: всё, что вы запишете в поездки (названия, адреса, заметки, суммы), увидит любой. Не пишите туда ничего личного.'));
 }
 
 /* ================= отрисовка ================= */
@@ -1290,8 +1294,12 @@ function route() {
   ui.editing = null; cur = null; els = {};
   if (spy) { spy.disconnect(); spy = null; }
   window.scrollTo(0, 0);
-  if (hs.indexOf('#cfg=') === 0) return openCfg(hs.slice(5));
   if (hs.indexOf('#s=') === 0) return openShared(hs.slice(3), my);
+  if (hs.indexOf('#pub=') === 0) {
+    let id = '';
+    try { id = decodeURIComponent(hs.slice(5)); } catch (e) {}
+    return openPublic(id, my);
+  }
   if (hs.indexOf('#trip=') === 0) {
     let id = '';
     try { id = decodeURIComponent(hs.slice(6)); } catch (e) {}
@@ -1314,9 +1322,10 @@ function openList() {
   const today = todayISO();
   const up = state.trips.filter(t => t.end >= today).sort((a, b) => a.start.localeCompare(b.start));
   const past = state.trips.filter(t => t.end < today).sort((a, b) => b.start.localeCompare(a.start));
-  const card = (t, i) => {
+  const shared = !syncOn() && pub ? pub.slice().sort((a, b) => a.start.localeCompare(b.start)) : [];
+  const card = (t, i, hash) => {
     const total = totalCost(t);
-    return h('a', { class: 'tcard c' + (i % 6), href: '#trip=' + encodeURIComponent(t.id) },
+    return h('a', { class: 'tcard c' + (i % 6), href: (hash || '#trip=') + encodeURIComponent(t.id) },
       h('div', { class: 'tc-band' }, h('b', {}, t.title),
         h('span', {}, [t.dest, fmtRange(t.start, t.end)].filter(Boolean).join(' · '))),
       h('div', { class: 'tc-meta' },
@@ -1341,8 +1350,9 @@ function openList() {
       h('button', { class: 'btn primary', onclick: newTrip }, '+ Новая поездка')),
     up.length > 0 && h('div', { class: 'tgrid' }, up.map((t, i) => card(t, i))),
     past.length > 0 && [h('p', { class: 'group' }, 'Прошедшие'), h('div', { class: 'tgrid' }, past.map((t, i) => card(t, up.length + i)))],
-    !state.trips.length && h('div', { class: 'panel' }, h('p', { class: 'lead', style: 'margin:0' },
+    !state.trips.length && !shared.length && h('div', { class: 'panel' }, h('p', { class: 'lead', style: 'margin:0' },
       'Пока нет поездок. Создайте первую: укажите даты, добавьте план по дням и тех, кто едет с вами.')),
+    shared.length > 0 && [h('p', { class: 'group' }, 'Общие поездки · только просмотр'), h('div', { class: 'tgrid', id: 'shared' }, shared.map((t, i) => card(t, i + 2, '#pub=')))],
     ideasCard, sample, syncPanel());
 }
 function newTrip() {
@@ -1787,7 +1797,17 @@ function buildSharePanel(t) {
   return h('div', { class: 'panel' },
     h('h2', {}, 'Поделиться планом'),
     h('p', { class: 'muted', style: 'margin:0 0 12px' },
-      'Отправьте ссылку попутчикам — они увидят весь план и смогут сохранить его себе. План лежит прямо в ссылке, поэтому после изменений отправьте новую.'),
+      syncOn() ? 'Отправьте ссылку попутчикам — они увидят весь план и смогут сохранить его себе.'
+        : 'Отправьте ссылку попутчикам — они увидят весь план и смогут сохранить его себе. План лежит прямо в ссылке, поэтому после изменений отправьте новую.'),
+    syncOn() && h('div', { class: 'plink' },
+      h('p', { class: 'muted', style: 'margin:0 0 6px' }, 'Постоянная ссылка: всегда показывает свежую версию с GitHub, её можно отправить один раз. Открыть может любой, менять нельзя.'),
+      h('input', { class: 'inp', readonly: true, 'aria-label': 'Постоянная ссылка', value: pubLink(t), onfocus: e => e.target.select() }),
+      h('div', { class: 'row', style: 'margin:10px 0 14px' },
+        h('button', { class: 'btn', onclick: async () => {
+          try { await navigator.clipboard.writeText(pubLink(t)); toast('Постоянная ссылка скопирована'); }
+          catch (e) { prompt('Скопируйте ссылку', pubLink(t)); }
+        } }, 'Копировать постоянную ссылку')),
+      h('p', { class: 'muted', style: 'margin:0 0 6px' }, 'Или ссылка со снимком плана (не обновляется, поэтому после изменений отправьте новую):')),
     els.link,
     h('div', { class: 'row', style: 'margin-top:10px' },
       h('button', { class: 'btn', onclick: copyLink }, 'Копировать'),
@@ -1851,12 +1871,33 @@ async function openShared(payload, my) {
       h('p', { class: 'lead' }, reason || 'Ссылка повреждена или скопирована не полностью. Попросите отправить её ещё раз.')));
     return;
   }
+  showReadOnly(t, 'Вам прислали план поездки');
+}
+/* Постоянная ссылка владельца: всегда показывает свежую версию поездки с GitHub, без токена. */
+async function openPublic(id, my) {
+  setBack(true);
+  document.title = 'План поездки';
+  const mine = syncOn() && state.trips.find(t => t.id === id);
+  if (mine) return openTrip(mine);                 // у владельца поездка открывается для правки
+  show(h('p', { class: 'lead' }, 'Загружаем план…'));
+  if (pubWait) await pubWait;
+  else if (!pub) await loadPublic(true);
+  if (my !== routeTok) return;
+  const t = (pub || []).find(x => x.id === id);
+  if (!t) {
+    show(h('div', { class: 'panel' }, h('h2', {}, 'Поездка не найдена'),
+      h('p', { class: 'lead' }, 'Возможно, владелец её удалил или ещё не сохранил в GitHub. Попросите прислать ссылку ещё раз.')));
+    return;
+  }
+  showReadOnly(t, 'Общий план поездки. Он обновляется сам, когда владелец что-то меняет');
+}
+function showReadOnly(t, head) {
   document.title = t.title + ' — план поездки';
   const hero = h('header', { class: 'hero' }), budget = h('div', { class: 'l-budget' }), nav = h('div', { class: 'strip' }), plan = h('div');
   show(
     hero,
     h('div', { class: 'panel banner' },
-      h('b', {}, 'Вам прислали план поездки'),
+      h('b', {}, head),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary', onclick: () => importTrip(t) }, 'Сохранить себе'),
         h('a', { class: 'btn', target: '_blank', rel: 'noopener', href: tripGcal(t, []) }, 'В Google Календарь'),
@@ -1895,8 +1936,10 @@ loadSync();
 window.addEventListener('hashchange', route);
 route();
 syncNow();
-document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
-window.addEventListener('online', syncNow);
+loadPublic();
+const refreshAll = () => { syncNow(); if (!syncOn()) loadPublic(); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
+window.addEventListener('online', refreshAll);
 </script>
 </body>
 </html>

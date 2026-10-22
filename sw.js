@@ -2,7 +2,7 @@
    Кэширует оболочку приложения, чтобы оно открывалось без сети.
    Запросы к Apps Script никогда не кэшируются: данные должны быть свежими. */
 
-const CACHE = 'habits-v8';
+const CACHE = 'habits-v9';
 const ASSETS = [
   './',
   './index.html',
@@ -35,6 +35,10 @@ self.addEventListener('fetch', event => {
   // всё, что уходит в Google, — только через сеть
   if (req.url.indexOf('script.google.com') >= 0 ||
       req.url.indexOf('googleusercontent.com') >= 0) return;
+
+  // данные поездок на GitHub: тоже только через сеть
+  if (req.url.indexOf('api.github.com') >= 0 ||
+      req.url.indexOf('raw.githubusercontent.com') >= 0) return;
 
   // страницы: сначала сеть, чтобы телефон не показывал вчерашнюю версию; нет сети или она медленная — копия из кэша
   if (req.mode === 'navigate' || req.destination === 'document') {
