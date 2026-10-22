@@ -1042,11 +1042,11 @@ const SAMPLES = [
 ];
 
 /* ================= хранение в GitHub и синхронизация между устройствами ================= */
-/* Поездки лежат файлом trip/data.json на отдельной ветке этого же открытого репозитория. Читать файл может любой, поэтому без токена
+/* Поездки лежат файлом data.json в отдельном открытом репозитории Trip (там нет кода сайта). Читать файл может любой, поэтому без токена
    страница показывает поездки владельца только для просмотра; записывать можно только с токеном (его вводит владелец).
    Поездки склеиваются по времени последней правки: у каждой побеждает более свежая копия; удалённые помечаются отдельно. */
 const SYNC_KEY = 'tripSync.v2', PUB_KEY = 'tripPublic.v1';
-const GH = { api: 'https://api.github.com', raw: 'https://raw.githubusercontent.com', owner: 'yessenali2001-rgb', repo: 'Habits', main: 'main', branch: 'trip-data', path: 'trip/data.json' };
+const GH = { api: 'https://api.github.com', raw: 'https://raw.githubusercontent.com', owner: 'yessenali2001-rgb', repo: 'Trip', path: 'data.json' };
 const ghRepo = () => GH.api + '/repos/' + GH.owner + '/' + GH.repo;
 let sync = { token: '', last: 0, error: '', auth: false };
 let syncBusy = false, syncAgain = false, syncTimer = 0, forceWrite = false;
@@ -1087,10 +1087,10 @@ async function ghError(r) {
   e.auth = r.status === 401 || r.status === 404 || (r.status === 403 && !limited);
   return e;
 }
-const fileUrl = () => '/contents/' + GH.path + '?ref=' + GH.branch + '&_=' + Date.now();   // _ обходит кэш браузера: данные нужны свежие
+const fileUrl = () => '/contents/' + GH.path + '?_=' + Date.now();   // _ обходит кэш браузера: данные нужны свежие
 async function ghRead() {
   const r = await gh('GET', fileUrl());
-  if (r.status === 404) return { sha: '', data: null };      // файла или ветки ещё нет: поездок в облаке пока нет
+  if (r.status === 404) return { sha: '', data: null };      // файла ещё нет: поездок в облаке пока нет
   if (!r.ok) throw await ghError(r);
   const j = await r.json();
   let text = '';
@@ -1104,19 +1104,9 @@ async function ghRead() {
   try { data = JSON.parse(text); } catch (e) {}
   return { sha: j.sha || '', data };
 }
-/* Данные лежат на своей ветке, чтобы запись не пересобирала сайт и не засоряла историю main. Ветка создаётся при первой записи. */
-async function ensureBranch() {
-  if ((await gh('GET', '/git/ref/heads/' + GH.branch)).ok) return;
-  const r = await gh('GET', '/git/ref/heads/' + GH.main);
-  if (!r.ok) throw await ghError(r);
-  const sha = ((await r.json()).object || {}).sha;
-  const c = await gh('POST', '/git/refs', { ref: 'refs/heads/' + GH.branch, sha });
-  if (!c.ok && c.status !== 422) throw await ghError(c);      // 422: ветку только что создали с другого устройства
-}
 async function ghWrite(sha, data) {
-  if (!sha) await ensureBranch();
   const bytes = new TextEncoder().encode(JSON.stringify(data));
-  const body = { message: 'Поездки: обновление данных', content: btoa(Array.from(bytes, x => String.fromCharCode(x)).join('')), branch: GH.branch };
+  const body = { message: 'Поездки: обновление данных', content: btoa(Array.from(bytes, x => String.fromCharCode(x)).join('')) };
   if (sha) body.sha = sha;
   const r = await gh('PUT', '/contents/' + GH.path, body);
   if (!r.ok) throw await ghError(r);
@@ -1210,7 +1200,7 @@ function loadPublic(force) {
     try { data = (await ghRead()).data; }
     catch (e) {
       try {                                          // запасной путь, если GitHub API сейчас не отвечает или лимит исчерпан
-        const r = await fetch(GH.raw + '/' + GH.owner + '/' + GH.repo + '/' + GH.branch + '/' + GH.path + '?_=' + Date.now());
+        const r = await fetch(GH.raw + '/' + GH.owner + '/' + GH.repo + '/HEAD/' + GH.path + '?_=' + Date.now());
         if (r.ok) data = await r.json();
       } catch (_) {}
     }
@@ -1247,7 +1237,7 @@ function syncPanel() {
     const panel = h('section', { class: 'panel sync' },
       h('h2', {}, 'Поездки сохраняются в GitHub'),
       els.syncStatus,
-      h('p', { class: 'muted', style: 'margin-top:0' }, 'Все ваши поездки лежат в файле ' + GH.path + ' (ветка ' + GH.branch + ') открытого репозитория ' + GH.repo + ': любой, кто откроет эту страницу, увидит их, но только для просмотра. Менять их можно только с вашим токеном. На всех устройствах с токеном поездки совпадают, правки отправляются через пару секунд. E-mail попутчиков в GitHub не попадают: они остаются на том устройстве, где введены.'),
+      h('p', { class: 'muted', style: 'margin-top:0' }, 'Все ваши поездки лежат в файле ' + GH.path + ' открытого репозитория ' + GH.repo + ': любой, кто откроет эту страницу, увидит их, но только для просмотра. Менять их можно только с вашим токеном. На всех устройствах с токеном поездки совпадают, правки отправляются через пару секунд. E-mail попутчиков в GitHub не попадают: они остаются на том устройстве, где введены.'),
       h('div', { class: 'row' },
         h('button', { class: 'btn', type: 'button', onclick: () => { toast('Синхронизируем…'); syncNow(); } }, 'Синхронизировать сейчас'),
         h('button', { class: 'btn danger', type: 'button', onclick: () => {
@@ -1270,13 +1260,13 @@ function syncPanel() {
     h('details', { class: 'howto' },
       h('summary', {}, 'Как получить токен (3 минуты)'),
       h('ol', {},
-        h('li', {}, h('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener' }, 'Откройте страницу создания токена'), ' (войдите в GitHub под тем же аккаунтом, где лежит репозиторий ' + GH.repo + ').'),
+        h('li', {}, h('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener' }, 'Откройте страницу создания токена'), ' (войдите в GitHub под тем же аккаунтом, где создан репозиторий ' + GH.repo + ').'),
         h('li', {}, 'Token name: любое, например trip. Expiration: поставьте максимум.'),
         h('li', {}, 'Repository access: Only select repositories, выберите ' + GH.repo + '.'),
         h('li', {}, 'Permissions, Repository permissions: найдите Contents и поставьте Read and write. Больше ничего не нужно.'),
         h('li', {}, 'Нажмите Generate token и скопируйте токен (он показывается один раз), вставьте его ниже и нажмите «Включить».'),
         h('li', {}, 'На телефоне откройте эту же страницу и вставьте тот же токен (сохраните его в заметках или менеджере паролей, GitHub больше его не покажет) либо создайте токен заново.')),
-      h('p', { class: 'muted' }, 'Токен хранится только в этом браузере. Он даёт право менять файлы репозитория ' + GH.repo + ', поэтому не показывайте его никому. Если токен потерялся или попал не туда, удалите его на странице GitHub, где вы его создавали.')),
+      h('p', { class: 'muted' }, 'Токен хранится только в этом браузере. Он даёт право менять файлы только репозитория ' + GH.repo + ' (код сайта он не затрагивает), но всё равно не показывайте его никому. Если токен потерялся или попал не туда, удалите его на странице GitHub, где вы его создавали.')),
     h('label', { class: 'field' }, h('span', {}, 'Токен GitHub'), token),
     h('div', { class: 'row' },
       h('button', { class: 'btn primary', type: 'button', onclick: turnOn }, 'Включить')),
