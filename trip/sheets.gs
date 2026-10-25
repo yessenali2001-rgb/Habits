@@ -2,6 +2,7 @@
 // Вставьте этот код в таблицу: Расширения -> Apps Script. Замените секретную фразу ниже на свою (не короче 8 символов).
 // Читать данные может любой, у кого есть адрес развёртывания, а записывать - только тот, кто знает секретную фразу.
 // После любого изменения кода: Развернуть -> Управление развёртываниями -> карандаш -> Версия: Новая версия -> Развернуть.
+// Приглашения в Google Календарь: один раз выберите в списке функций authorizeCalendar, нажмите «Выполнить» и разрешите доступ к календарю.
 
 const CODE = 'замените-на-свой-секретный-код';
 const DATA = 'data';      // служебный лист: в нём лежат все поездки (не правьте его руками)
@@ -62,6 +63,49 @@ function mirror_(data) {
   sh.setFrozenRows(1);
 }
 
+function authorizeCalendar() {
+  CalendarApp.getDefaultCalendar();    // нужна один раз: Google спросит разрешение на доступ к календарю
+}
+
+// Событие на все дни поездки в вашем календаре + приглашения участникам. Повторный вызов обновляет то же событие.
+function invite_(t) {
+  const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/, day = /^\d{4}-\d{2}-\d{2}$/;
+  if (!t || typeof t.id !== 'string' || !/^[\w-]{1,40}$/.test(t.id) || typeof t.title !== 'string' || !t.title ||
+      !day.test(t.start) || !day.test(t.end) || t.end < t.start || !Array.isArray(t.guests) || t.guests.length > 30) return reply_({ ok: false, error: 'bad' });
+  const guests = [];
+  for (let i = 0; i < t.guests.length; i++) {
+    const g = String(t.guests[i]).trim().toLowerCase();
+    if (g.length > 120 || !mail.test(g)) return reply_({ ok: false, error: 'guests' });
+    if (guests.indexOf(g) < 0) guests.push(g);
+  }
+  const title = t.title.slice(0, 120), place = String(t.dest || '').slice(0, 120), description = String(t.description || '').slice(0, 8000);
+  const a = t.start.split('-').map(Number), b = t.end.split('-').map(Number);
+  const start = new Date(a[0], a[1] - 1, a[2]), end = new Date(b[0], b[1] - 1, b[2] + 1);    // у событий на весь день конец не включается
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (x) { return reply_({ ok: false, error: 'busy' }); }
+  try {
+    const cal = CalendarApp.getDefaultCalendar(), props = PropertiesService.getScriptProperties(), key = 'event_' + t.id;
+    let ev = null;
+    const old = props.getProperty(key);
+    if (old) { try { ev = cal.getEventById(old); } catch (x) { ev = null; } }
+    if (ev) {
+      try {
+        ev.setTitle(title); ev.setAllDayDates(start, end); ev.setDescription(description); ev.setLocation(place);
+        const have = ev.getGuestList().map(function (g) { return g.getEmail().toLowerCase(); });
+        guests.forEach(function (g) { if (have.indexOf(g) < 0) ev.addGuest(g); });
+        have.forEach(function (g) { if (guests.indexOf(g) < 0) ev.removeGuest(g); });
+      } catch (x) { ev = null; }       // событие удалили в календаре: создадим заново
+    }
+    if (!ev) ev = cal.createAllDayEvent(title, start, end, { description: description, location: place, guests: guests.join(','), sendInvites: true });
+    props.setProperty(key, ev.getId());
+    return reply_({ ok: true, guests: ev.getGuestList().map(function (g) { return g.getEmail(); }) });
+  } catch (x) {
+    return reply_({ ok: false, error: 'calendar', message: String(x && x.message || x).slice(0, 200) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function doGet() {
   const r = read_();
   return reply_({ ok: true, rev: r.rev, data: r.data });
@@ -72,6 +116,7 @@ function doPost(e) {
   try { req = JSON.parse(e.postData.contents); } catch (x) { return reply_({ ok: false, error: 'bad' }); }
   if (typeof CODE !== 'string' || CODE.length < 8 || CODE.indexOf('замените') === 0) return reply_({ ok: false, error: 'setup' });
   if (!req || req.code !== CODE) return reply_({ ok: false, error: 'code' });
+  if (req.a === 'invite') return invite_(req.trip);
   if (!req.data || !Array.isArray(req.data.trips)) return reply_({ ok: false, error: 'bad' });
   if (JSON.stringify(req.data).length > 2000000) return reply_({ ok: false, error: 'large' });
   const lock = LockService.getScriptLock();

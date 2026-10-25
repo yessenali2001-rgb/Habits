@@ -1053,6 +1053,7 @@ const SHEETS_SCRIPT = `// Планировщик поездок: хранени�
 // Вставьте этот код в таблицу: Расширения -> Apps Script. Замените секретную фразу ниже на свою (не короче 8 символов).
 // Читать данные может любой, у кого есть адрес развёртывания, а записывать - только тот, кто знает секретную фразу.
 // После любого изменения кода: Развернуть -> Управление развёртываниями -> карандаш -> Версия: Новая версия -> Развернуть.
+// Приглашения в Google Календарь: один раз выберите в списке функций authorizeCalendar, нажмите «Выполнить» и разрешите доступ к календарю.
 
 const CODE = 'замените-на-свой-секретный-код';
 const DATA = 'data';      // служебный лист: в нём лежат все поездки (не правьте его руками)
@@ -1113,6 +1114,49 @@ function mirror_(data) {
   sh.setFrozenRows(1);
 }
 
+function authorizeCalendar() {
+  CalendarApp.getDefaultCalendar();    // нужна один раз: Google спросит разрешение на доступ к календарю
+}
+
+// Событие на все дни поездки в вашем календаре + приглашения участникам. Повторный вызов обновляет то же событие.
+function invite_(t) {
+  const mail = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, day = /^\\d{4}-\\d{2}-\\d{2}$/;
+  if (!t || typeof t.id !== 'string' || !/^[\\w-]{1,40}$/.test(t.id) || typeof t.title !== 'string' || !t.title ||
+      !day.test(t.start) || !day.test(t.end) || t.end < t.start || !Array.isArray(t.guests) || t.guests.length > 30) return reply_({ ok: false, error: 'bad' });
+  const guests = [];
+  for (let i = 0; i < t.guests.length; i++) {
+    const g = String(t.guests[i]).trim().toLowerCase();
+    if (g.length > 120 || !mail.test(g)) return reply_({ ok: false, error: 'guests' });
+    if (guests.indexOf(g) < 0) guests.push(g);
+  }
+  const title = t.title.slice(0, 120), place = String(t.dest || '').slice(0, 120), description = String(t.description || '').slice(0, 8000);
+  const a = t.start.split('-').map(Number), b = t.end.split('-').map(Number);
+  const start = new Date(a[0], a[1] - 1, a[2]), end = new Date(b[0], b[1] - 1, b[2] + 1);    // у событий на весь день конец не включается
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (x) { return reply_({ ok: false, error: 'busy' }); }
+  try {
+    const cal = CalendarApp.getDefaultCalendar(), props = PropertiesService.getScriptProperties(), key = 'event_' + t.id;
+    let ev = null;
+    const old = props.getProperty(key);
+    if (old) { try { ev = cal.getEventById(old); } catch (x) { ev = null; } }
+    if (ev) {
+      try {
+        ev.setTitle(title); ev.setAllDayDates(start, end); ev.setDescription(description); ev.setLocation(place);
+        const have = ev.getGuestList().map(function (g) { return g.getEmail().toLowerCase(); });
+        guests.forEach(function (g) { if (have.indexOf(g) < 0) ev.addGuest(g); });
+        have.forEach(function (g) { if (guests.indexOf(g) < 0) ev.removeGuest(g); });
+      } catch (x) { ev = null; }       // событие удалили в календаре: создадим заново
+    }
+    if (!ev) ev = cal.createAllDayEvent(title, start, end, { description: description, location: place, guests: guests.join(','), sendInvites: true });
+    props.setProperty(key, ev.getId());
+    return reply_({ ok: true, guests: ev.getGuestList().map(function (g) { return g.getEmail(); }) });
+  } catch (x) {
+    return reply_({ ok: false, error: 'calendar', message: String(x && x.message || x).slice(0, 200) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function doGet() {
   const r = read_();
   return reply_({ ok: true, rev: r.rev, data: r.data });
@@ -1123,6 +1167,7 @@ function doPost(e) {
   try { req = JSON.parse(e.postData.contents); } catch (x) { return reply_({ ok: false, error: 'bad' }); }
   if (typeof CODE !== 'string' || CODE.length < 8 || CODE.indexOf('замените') === 0) return reply_({ ok: false, error: 'setup' });
   if (!req || req.code !== CODE) return reply_({ ok: false, error: 'code' });
+  if (req.a === 'invite') return invite_(req.trip);
   if (!req.data || !Array.isArray(req.data.trips)) return reply_({ ok: false, error: 'bad' });
   if (JSON.stringify(req.data).length > 2000000) return reply_({ ok: false, error: 'large' });
   const lock = LockService.getScriptLock();
@@ -1163,8 +1208,9 @@ async function sheetFetch(query, init) {
   finally { clearTimeout(tm); }
 }
 function sheetErr(j) {
-  const m = { code: 'неверная секретная фраза', setup: 'в скрипте не задана секретная фраза: замените её в первой строке кода',
-    large: 'в поездках слишком много данных', busy: 'таблица занята, попробуем ещё раз', bad: 'скрипт не понял запрос: обновите развёртывание до новой версии' }[j && j.error];
+  const m = { code: 'неверная секретная фраза', setup: 'в скрипте не задана секретная фраза: впишите её в строке const CODE (строка 6) и выпустите новую версию',
+    large: 'в поездках слишком много данных', busy: 'таблица занята, попробуем ещё раз', bad: 'скрипт не понял запрос: обновите код скрипта (кнопка «Скопировать код») и выпустите новую версию',
+    guests: 'проверьте e-mail участников: один из адресов записан неверно', calendar: 'Google Календарь не принял событие' + (j && j.message ? ': ' + j.message : '') }[j && j.error];
   const e = new Error(m || 'ошибка скрипта: ' + ((j && j.error) || 'нет ответа'));
   e.known = true; e.auth = !!(j && (j.error === 'code' || j.error === 'setup'));
   return e;
@@ -1350,15 +1396,16 @@ function syncPanel() {
       h('ol', {},
         h('li', {}, 'Откройте Google Таблицы и создайте новую пустую таблицу, например «Поездки».'),
         h('li', {}, 'В меню: Расширения → Apps Script. Удалите всё, что там есть, и вставьте код ниже (кнопка «Скопировать код»).'),
-        h('li', {}, 'В первой строке кода замените «замените-на-свой-секретный-код» на свою секретную фразу (от 8 знаков) и сохраните (значок дискеты).'),
+        h('li', {}, 'В строке 6 (она начинается с const CODE) замените «замените-на-свой-секретный-код» на свою секретную фразу (от 8 знаков) и сохраните (значок дискеты).'),
         h('li', {}, 'Справа вверху: Начать развертывание → Новое развертывание → тип «Веб-приложение». Выполнять от имени: «Я». У кого есть доступ: «Все». Нажмите «Развернуть» и разрешите доступ к таблице (если Google пишет, что приложение не проверено: «Дополнительно» → «Перейти на страницу»).'),
         h('li', {}, 'Скопируйте «URL веб-приложения» (оканчивается на /exec), вставьте его и вашу секретную фразу ниже и нажмите «Включить».'),
+        h('li', {}, 'Чтобы отправлять приглашения участникам в Google Календарь: в списке функций вверху выберите authorizeCalendar, нажмите «Выполнить» и разрешите доступ к календарю. Потом выпустите новую версию (подсказка ниже).'),
         h('li', {}, 'На телефоне откройте эту же страницу и введите тот же адрес и ту же фразу.')),
       h('pre', { class: 'code' }, SHEETS_SCRIPT),
       h('button', { class: 'btn tiny', type: 'button', onclick: async () => {
         try { await navigator.clipboard.writeText(SHEETS_SCRIPT); toast('Код скопирован'); } catch (e) { toast('Выделите код и скопируйте вручную', true); }
       } }, 'Скопировать код'),
-      h('p', { class: 'muted' }, 'Если потом менять код скрипта, нужно заново развернуть: Начать развертывание → Управление развертываниями → карандаш → Версия: «Новая версия» → Развернуть. Адрес при этом не меняется.')),
+      h('p', { class: 'muted' }, 'Если потом менять код скрипта (например, вставить новую версию с этой страницы, не забыв снова вписать фразу в строке 6), нужно заново развернуть: Начать развертывание → Управление развертываниями → карандаш → Версия: «Новая версия» → Развернуть. Адрес при этом не меняется.')),
     !SHEETS_URL && h('label', { class: 'field' }, h('span', {}, 'Адрес скрипта'), url),
     h('label', { class: 'field' }, h('span', {}, 'Секретная фраза'), code),
     h('div', { class: 'row' },
@@ -1798,6 +1845,62 @@ function openTrip(t) {
   renderPeople(); refresh(); syncShare();
 }
 
+/* ---- приглашения в Google Календарь: делает скрипт владельца, e-mail идут только к нему и в таблицу не попадают ---- */
+const INV_KEY = 'tripInvites.v1';
+const invLoad = () => { try { const o = JSON.parse(localStorage.getItem(INV_KEY)); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } };
+function invSave(id, emails) {
+  const o = invLoad(); o[id] = { at: Date.now(), emails };
+  try { localStorage.setItem(INV_KEY, JSON.stringify(o)); } catch (e) {}
+}
+function planText(t) {
+  const lines = [];
+  tripDays(t).forEach(d => {
+    const its = dayItems(t, d);
+    if (!its.length) return;
+    lines.push(fmtDay(d) + (t.labels[d] ? ' · ' + t.labels[d] : ''));
+    its.forEach(i => lines.push((i.time ? i.time + (i.end ? '–' + i.end : '') + ' ' : '• ') + (kindOf(i) === 'idea' ? 'Идея: ' : '') + i.title + (i.place ? ' (' + i.place + ')' : '')));
+    lines.push('');
+  });
+  lines.push('Актуальный план: ' + pubLink(t));
+  const s = lines.join('\n');
+  return s.length > 7500 ? s.slice(0, 7300) + '…\nПолный план: ' + pubLink(t) : s;
+}
+async function sendInvites(t, btn) {
+  const mails = guestsOf(t);
+  if (!mails.length) return;
+  if (!confirm('Отправить приглашения в Google Календарь?\n\n' + mails.join('\n') + '\n\nУчастники получат письмо с поездкой «' + t.title + '».')) return;
+  btn.disabled = true; btn.textContent = 'Отправляем…';
+  try {
+    let j;
+    try {
+      j = await sheetJson(await sheetFetch('', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ a: 'invite', code: sync.code, trip: { id: t.id, title: t.title, dest: t.dest, start: t.start, end: t.end, guests: mails, description: planText(t) } }) }));
+    } catch (e) {
+      if (e.known || !e.auth) throw e;
+      throw new Error('скрипту ещё не разрешён доступ к календарю: в Apps Script выберите функцию authorizeCalendar, нажмите «Выполнить», разрешите доступ и выпустите новую версию');
+    }
+    if (!j.ok) throw sheetErr(j);
+    invSave(t.id, mails);
+    toast('Приглашения отправлены: ' + mails.length);
+  } catch (e) {
+    toast('Не получилось: ' + syncMsg(e), true);
+  }
+  if (cur === t) renderInvite();
+}
+function renderInvite() {
+  const box = els.invBox, t = cur;
+  if (!box || !t) return;
+  const mails = guestsOf(t), sent = invLoad()[t.id];
+  const btn = h('button', { class: 'btn primary', type: 'button' }, sent ? 'Обновить приглашения' : 'Отправить приглашения');
+  btn.addEventListener('click', () => sendInvites(t, btn));
+  box.replaceChildren();
+  append(box, mails.length ? [
+    h('p', { class: 'muted', style: 'margin:0 0 10px' }, 'Получат приглашение: ' + mails.join(', ') + '. В вашем календаре появится событие на все дни поездки с планом в описании, а у участников приглашение в их календаре.'),
+    btn,
+    sent && h('p', { class: 'muted' }, 'Отправлено ' + new Date(sent.at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '. После изменений плана, дат или списка участников нажмите «Обновить приглашения»: событие обновится, новые участники получат приглашение.')
+  ] : [h('p', { class: 'muted', style: 'margin:0' }, 'Добавьте выше e-mail участников (Gmail), и здесь появится кнопка: они получат приглашение с поездкой в Google Календаре.')]);
+}
+
 function renderPeople() {
   const t = cur, box = els.people;
   const nm = h('input', { class: 'inp sm', maxlength: 60, placeholder: 'Имя', 'aria-label': 'Имя попутчика' });
@@ -1820,8 +1923,9 @@ function renderPeople() {
       t.people.push({ name: name || email.split('@')[0], email });
       persist(); renderPeople(); refresh();
     } }, nm, em, h('button', { class: 'btn', type: 'submit' }, 'Добавить')),
-    h('p', { class: 'muted' }, 'E-mail нужен только для приглашений в Google Календарь. В ссылку для попутчиков он не попадает.')
+    h('p', { class: 'muted' }, 'E-mail нужен только для приглашений в Google Календарь. В ссылку для попутчиков и в таблицу он не попадает.')
   ]);
+  renderInvite();
 }
 
 /* ---- расстояние между двумя местами ---- */
@@ -1878,6 +1982,7 @@ function buildSharePanel(t) {
   els.len = h('p', { class: 'muted hide' });
   els.gcal = h('a', { class: 'btn primary', target: '_blank', rel: 'noopener' });
   els.gnote = h('p', { class: 'muted' });
+  els.invBox = h('div');
   return h('div', { class: 'panel' },
     h('h2', {}, 'Поделиться планом'),
     h('p', { class: 'muted', style: 'margin:0 0 12px' },
@@ -1904,7 +2009,8 @@ function buildSharePanel(t) {
     h('h2', {}, 'Календарь'),
     h('div', { class: 'row' }, els.gcal,
       h('button', { class: 'btn', onclick: () => downloadICS(t) }, 'Скачать .ics (весь план)')),
-    els.gnote);
+    els.gnote,
+    syncOn() && [h('hr', { class: 'sep' }), h('h2', {}, 'Приглашения в Google Календарь'), els.invBox]);
 }
 async function copyLink() {
   if (!shareLink) return;
