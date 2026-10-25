@@ -543,7 +543,7 @@ function normTrip(o) {
     start: o.start, end: o.end,
     currency: CURRENCIES.indexOf(o.currency) >= 0 ? o.currency : '₸',
     labels: {}, people: [], items: [],
-    updated: +o.updated || Date.now()
+    updated: o.updated === 0 ? 0 : (+o.updated || Date.now())       // 0 — готовая заготовка, которую ещё не правили: она старее любой настоящей копии
   };
   if (o.labels && typeof o.labels === 'object') {
     Object.keys(o.labels).slice(0, MAX_DAYS + 20).forEach(k => {
@@ -1133,10 +1133,10 @@ function mergeRemote(remote) {
     if (goodId(id) && ts > (state.deleted[id] || 0)) { state.deleted[id] = ts; changed = true; }
   });
   const before = state.trips.length;
-  state.trips = state.trips.filter(t => (state.deleted[t.id] || 0) < t.updated);      // удалена позже последней правки: убираем
+  state.trips = state.trips.filter(t => !state.deleted[t.id] || state.deleted[t.id] < t.updated);      // удалена позже последней правки: убираем
   if (state.trips.length !== before) changed = true;
   rt.forEach((r, id) => {
-    if ((state.deleted[id] || 0) >= r.updated) return;
+    if (state.deleted[id] && state.deleted[id] >= r.updated) return;
     const mine = state.trips.find(t => t.id === id);
     if (!mine) { state.trips.push(r); changed = true; }
     else if (r.updated > mine.updated) { keepMails(r, mine); Object.assign(mine, r); changed = true; }     // на месте: открытая страница не теряет ссылку на поездку
@@ -1361,6 +1361,7 @@ function addAstanaIdeas() {
 }
 function addSample(id) {
   const t = SAMPLES.find(sp => sp.id === id).build();
+  t.updated = 0;                                // пока заготовку не изменили, она не должна перекрывать такую же поездку с другого устройства
   state.trips.push(t); save();
   location.hash = '#trip=' + encodeURIComponent(t.id);
 }
