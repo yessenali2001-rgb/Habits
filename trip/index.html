@@ -654,7 +654,22 @@ function cityContext(t) {
   tripDays(t).forEach(d => dayItems(t, d).forEach(i => { if (kindOf(i) === 'arrive') city = i.title; map.set(i, city); }));
   return map;
 }
-const withCity = (place, city) => !city || place.indexOf(',') >= 0 || place.toLowerCase().indexOf(city.toLowerCase()) >= 0 ? place : place + ', ' + city;
+/* Адрес ищем только в городе, где вы сейчас («ул. Абая 5, 2 этаж» → «…, Астана»). Исключение: в конце через запятую назван другой известный город («…, Алматы»). */
+function withCity(place, city) {
+  if (!city || place.toLowerCase().indexOf(city.toLowerCase()) >= 0) return place;
+  const last = (place.match(/,\s*([^,]+)$/) || [])[1];
+  if (last && dgisBase(last.trim())) return place;
+  return place + ', ' + city;
+}
+/* Город, в котором вы будете в этот день: по последнему пункту «Прибытие» не позже этой даты. */
+function cityOn(t, date) {
+  let city = '';
+  for (const d of tripDays(t)) {
+    if (d > date) break;
+    dayItems(t, d).forEach(i => { if (kindOf(i) === 'arrive') city = i.title; });
+  }
+  return city;
+}
 const mapsUrl = (t, place, city) => 'https://www.google.com/maps/search/?api=1&query=' +
   encodeURIComponent(city ? withCity(place, city) : t.dest && place.indexOf(',') < 0 && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
 
@@ -664,12 +679,9 @@ const DGIS = { 'астана': ['kz', 'astana'], 'алматы': ['kz', 'almaty'
   'тараз': ['kz', 'taraz'], 'кызылорда': ['kz', 'kyzylorda'], 'уральск': ['kz', 'uralsk'], 'петропавловск': ['kz', 'petropavlovsk'],
   'талдыкорган': ['kz', 'taldykorgan'], 'бишкек': ['kg', 'bishkek'], 'ош': ['kg', 'osh'], 'москва': ['ru', 'moscow'], 'санкт-петербург': ['ru', 'spb'] };
 const dgisBase = city => { const k = (city || '').trim().toLowerCase(); return own(DGIS, k) ? 'https://2gis.' + DGIS[k][0] + '/' + DGIS[k][1] : null; };
-function dgisCityOf(place, city) {              // город из адреса («…, Астана»), иначе город, где вы сейчас
+function dgisCityOf(place, city) {              // другой известный город из адреса («…, Алматы»), иначе город, где вы сейчас
   const m = place.match(/,\s*([^,]+)$/);
-  if (!m) return city;
-  const last = m[1].trim();
-  if (dgisBase(last)) return last;
-  return /\d/.test(last) ? city : '';           // назван другой город, которого нет в списке: ссылку на 2ГИС не даём
+  return m && dgisBase(m[1].trim()) ? m[1].trim() : city;
 }
 const dgisSame = (a, ca, b, cb) => { const x = dgisBase(dgisCityOf(a, ca)), y = dgisBase(dgisCityOf(b, cb)); return x && x === y ? x : null; };
 const dgisSearch = (place, city) => { const b = dgisBase(dgisCityOf(place, city)); return b && b + '/search/' + encodeURIComponent(place); };
@@ -1781,6 +1793,12 @@ function itemForm(t, it, date) {
   const fTitle = h('input', { class: 'inp sm', maxlength: 120, placeholder: 'Например: Музей Прадо', value: it ? it.title : '' });
   const fPlace = h('input', { class: 'inp sm', maxlength: 160, placeholder: 'Адрес или название места, лучше с городом', value: it ? it.place : '' });
   const fCost = h('input', { class: 'inp sm', type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: '0', value: it && it.cost ? it.cost : '' });
+  const fHint = h('p', { class: 'muted', style: 'margin:-4px 0 10px' });
+  const showHint = () => {
+    const c = cityOn(t, fDay.value);
+    fHint.textContent = c ? 'Ищем только в городе: ' + c + '. Если место в другом городе, допишите его в конце через запятую, например «…, Алматы».' : 'Лучше указать город в адресе, чтобы карта не нашла такое же место в другой стране.';
+  };
+  fDay.addEventListener('change', showHint); showHint();
   const fKind = h('select', { class: 'inp sm' }, h('option', { value: '' }, 'Определить по названию'),
     Object.keys(KINDS).map(k => h('option', { value: k }, KINDS[k].label)));
   fKind.value = it ? it.kind : '';
@@ -1814,6 +1832,7 @@ function itemForm(t, it, date) {
       h('label', { class: 'field' }, h('span', {}, 'Расход' + (t.currency ? ', ' + t.currency : '')), fCost),
       h('label', { class: 'field' }, h('span', {}, 'Тип (значок)'), fKind)),
     h('label', { class: 'field' }, h('span', {}, 'Место'), fPlace),
+    fHint,
     h('label', { class: 'field' }, h('span', {}, 'Подтверждение'), fConf),
     h('label', { class: 'field' }, h('span', {}, 'Заметка'), fNote),
     h('div', { class: 'row' },
