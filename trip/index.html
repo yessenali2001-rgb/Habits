@@ -1048,7 +1048,7 @@ const SAMPLES = [
    записывать можно только с секретной фразой, которую знает владелец.
    Поездки склеиваются по времени последней правки: у каждой побеждает более свежая копия; удалённые помечаются отдельно. */
 const SYNC_KEY = 'tripSync.v3', PUB_KEY = 'tripPublic.v1';
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbw9iKcHNqez9kbQ_pzaavAwggOaUdK6NuqIaWpwN_9WzaXcO8oEZpXflvnxfwpVD2Bp/exec';                          // адрес развёртывания скрипта (оканчивается на /exec): если вписать его сюда, другим устройствам и посетителям вводить его не нужно
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxMLPTbyk_uwq3XS61RiJsQYGZDpWT2uV-Kpm0MJRdOIpOnjdNyXXpbBLCys9aDlDaZ/exec';                          // адрес развёртывания скрипта (оканчивается на /exec): если вписать его сюда, другим устройствам и посетителям вводить его не нужно
 const SHEETS_SCRIPT = `// Планировщик поездок: хранение в Google Таблице.
 // Вставьте этот код в таблицу: Расширения -> Apps Script. Замените секретную фразу ниже на свою (не короче 8 символов).
 // Читать данные может любой, у кого есть адрес развёртывания, а записывать - только тот, кто знает секретную фразу.
