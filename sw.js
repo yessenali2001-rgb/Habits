@@ -2,7 +2,7 @@
    Кэширует оболочку приложения, чтобы оно открывалось без сети.
    Запросы к Apps Script никогда не кэшируются: данные должны быть свежими. */
 
-const CACHE = 'habits-v9';
+const CACHE = 'habits-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -36,6 +36,9 @@ self.addEventListener('fetch', event => {
   if (req.url.indexOf('script.google.com') >= 0 ||
       req.url.indexOf('googleusercontent.com') >= 0) return;
 
+  // проверка версии страницы поездок: всегда с сервера и без записи в кэш
+  if (req.url.indexOf('/version.txt') >= 0) return;
+
   // данные поездок на GitHub: тоже только через сеть
   if (req.url.indexOf('api.github.com') >= 0 ||
       req.url.indexOf('raw.githubusercontent.com') >= 0) return;
@@ -66,7 +69,7 @@ function networkFirst(req) {
     const cached = caches.match(req);
     const answer = res => { if (!done) { done = true; resolve(res); } };
     const timer = setTimeout(() => cached.then(hit => { if (hit) answer(hit); }), 4000);
-    fetch(req).then(res => {
+    fetch(req.url, { cache: 'no-cache' }).then(res => {       // no-cache: GitHub Pages разрешает хранить страницу 10 минут, а нам нужна свежая
       clearTimeout(timer);
       if (res && res.status === 200 && res.type === 'basic') {
         const copy = res.clone();
