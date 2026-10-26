@@ -333,6 +333,26 @@ pre.code { max-height:220px; overflow:auto; margin:10px 0; padding:12px; border-
 .sample span { color:var(--muted); font-size:13.5px; }
 .group { margin:26px 0 12px; font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-weight:600; }
 
+/* свёрнутые блоки на телефоне: сначала план, остальное по нажатию на заголовок */
+.fold > h2 { cursor:pointer; margin-bottom:0; -webkit-tap-highlight-color:transparent; }
+.fold > h2::after { content:""; margin-left:auto; flex:none; width:9px; height:9px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted);
+  transform:rotate(45deg) translate(-2px, -2px); transition:transform .2s; }
+.fold.open > h2 { margin-bottom:12px; }
+.fold.open > h2::after { transform:rotate(-135deg) translate(-2px, -2px); }
+.fold:not(.open) > :not(:first-child) { display:none; }
+
+@media (pointer:coarse) {                     /* пальцем: крупные области нажатия */
+  .more { width:40px; height:40px; font-size:20px; opacity:1; }
+  .conf { min-height:40px; }
+  .conf input { width:22px; height:22px; }
+  .acts .btn.tiny { padding:10px 14px; }
+  .chip button { padding:6px 10px; }
+  .iplace a.dg { padding:4px 11px; }
+  .leg a, .leg .lnk { display:inline-block; padding:8px 6px; }
+  summary { padding:10px 0; }
+  .dlabel { padding:6px 0 4px; }
+}
+
 @media (max-width:560px) {
   .hero { padding:24px 18px 36px; border-radius:20px; }
   .hero::before { right:6%; bottom:58px; width:84px; height:84px; }
@@ -348,7 +368,11 @@ pre.code { max-height:220px; overflow:auto; margin:10px 0; padding:12px; border-
   .day { padding:0 14px 10px; border-radius:18px; }
   .dh { grid-template-columns:auto minmax(0, 1fr); margin:0 -14px 8px; padding:14px; }
   .dsum { grid-column:1 / -1; justify-self:start; }
-  .it { --tc:48px; --bc:32px; --gp:8px; }
+  .it { --tc:44px; --bc:30px; --gp:7px; grid-template-columns:var(--tc) var(--bc) minmax(0, 1fr); }
+  .more { position:absolute; right:-6px; top:2px; margin:0; }     /* кнопка действий и сумма не занимают отдельные столбцы: тексту больше места */
+  .ititle { padding-right:30px; }
+  .cost { grid-column:3; justify-self:end; padding:0 4px 0 0; }
+  .cost:empty { display:none; }
   .bd { font-size:16px; }
   .it.nested .bd { width:24px; height:24px; margin:4px; font-size:13px; }
   .grid2 { grid-template-columns:1fr; }
@@ -630,7 +654,22 @@ function cityContext(t) {
   tripDays(t).forEach(d => dayItems(t, d).forEach(i => { if (kindOf(i) === 'arrive') city = i.title; map.set(i, city); }));
   return map;
 }
-const withCity = (place, city) => !city || place.indexOf(',') >= 0 || place.toLowerCase().indexOf(city.toLowerCase()) >= 0 ? place : place + ', ' + city;
+/* Адрес ищем только в городе, где вы сейчас («ул. Абая 5, 2 этаж» → «…, Астана»). Исключение: в конце через запятую назван другой известный город («…, Алматы»). */
+function withCity(place, city) {
+  if (!city || place.toLowerCase().indexOf(city.toLowerCase()) >= 0) return place;
+  const last = (place.match(/,\s*([^,]+)$/) || [])[1];
+  if (last && dgisBase(last.trim())) return place;
+  return place + ', ' + city;
+}
+/* Город, в котором вы будете в этот день: по последнему пункту «Прибытие» не позже этой даты. */
+function cityOn(t, date) {
+  let city = '';
+  for (const d of tripDays(t)) {
+    if (d > date) break;
+    dayItems(t, d).forEach(i => { if (kindOf(i) === 'arrive') city = i.title; });
+  }
+  return city;
+}
 const mapsUrl = (t, place, city) => 'https://www.google.com/maps/search/?api=1&query=' +
   encodeURIComponent(city ? withCity(place, city) : t.dest && place.indexOf(',') < 0 && place.toLowerCase().indexOf(t.dest.toLowerCase()) < 0 ? place + ', ' + t.dest : place);
 
@@ -640,12 +679,9 @@ const DGIS = { 'астана': ['kz', 'astana'], 'алматы': ['kz', 'almaty'
   'тараз': ['kz', 'taraz'], 'кызылорда': ['kz', 'kyzylorda'], 'уральск': ['kz', 'uralsk'], 'петропавловск': ['kz', 'petropavlovsk'],
   'талдыкорган': ['kz', 'taldykorgan'], 'бишкек': ['kg', 'bishkek'], 'ош': ['kg', 'osh'], 'москва': ['ru', 'moscow'], 'санкт-петербург': ['ru', 'spb'] };
 const dgisBase = city => { const k = (city || '').trim().toLowerCase(); return own(DGIS, k) ? 'https://2gis.' + DGIS[k][0] + '/' + DGIS[k][1] : null; };
-function dgisCityOf(place, city) {              // город из адреса («…, Астана»), иначе город, где вы сейчас
+function dgisCityOf(place, city) {              // другой известный город из адреса («…, Алматы»), иначе город, где вы сейчас
   const m = place.match(/,\s*([^,]+)$/);
-  if (!m) return city;
-  const last = m[1].trim();
-  if (dgisBase(last)) return last;
-  return /\d/.test(last) ? city : '';           // назван другой город, которого нет в списке: ссылку на 2ГИС не даём
+  return m && dgisBase(m[1].trim()) ? m[1].trim() : city;
 }
 const dgisSame = (a, ca, b, cb) => { const x = dgisBase(dgisCityOf(a, ca)), y = dgisBase(dgisCityOf(b, cb)); return x && x === y ? x : null; };
 const dgisSearch = (place, city) => { const b = dgisBase(dgisCityOf(place, city)); return b && b + '/search/' + encodeURIComponent(place); };
@@ -1499,6 +1535,7 @@ function openList() {
       'Пока нет поездок. Создайте первую: укажите даты, добавьте план по дням и тех, кто едет с вами.')),
     shared.length > 0 && [h('p', { class: 'group' }, 'Общие поездки · только просмотр'), h('div', { class: 'tgrid', id: 'shared' }, shared.map((t, i) => card(t, i + 2, '#pub=')))],
     ideasCard, sample, syncPanel());
+  foldPanels([document.querySelector('.sync')]);
 }
 function newTrip() {
   const s = todayISO();
@@ -1756,6 +1793,12 @@ function itemForm(t, it, date) {
   const fTitle = h('input', { class: 'inp sm', maxlength: 120, placeholder: 'Например: Музей Прадо', value: it ? it.title : '' });
   const fPlace = h('input', { class: 'inp sm', maxlength: 160, placeholder: 'Адрес или название места, лучше с городом', value: it ? it.place : '' });
   const fCost = h('input', { class: 'inp sm', type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: '0', value: it && it.cost ? it.cost : '' });
+  const fHint = h('p', { class: 'muted', style: 'margin:-4px 0 10px' });
+  const showHint = () => {
+    const c = cityOn(t, fDay.value);
+    fHint.textContent = c ? 'Ищем только в городе: ' + c + '. Если место в другом городе, допишите его в конце через запятую, например «…, Алматы».' : 'Лучше указать город в адресе, чтобы карта не нашла такое же место в другой стране.';
+  };
+  fDay.addEventListener('change', showHint); showHint();
   const fKind = h('select', { class: 'inp sm' }, h('option', { value: '' }, 'Определить по названию'),
     Object.keys(KINDS).map(k => h('option', { value: k }, KINDS[k].label)));
   fKind.value = it ? it.kind : '';
@@ -1789,6 +1832,7 @@ function itemForm(t, it, date) {
       h('label', { class: 'field' }, h('span', {}, 'Расход' + (t.currency ? ', ' + t.currency : '')), fCost),
       h('label', { class: 'field' }, h('span', {}, 'Тип (значок)'), fKind)),
     h('label', { class: 'field' }, h('span', {}, 'Место'), fPlace),
+    fHint,
     h('label', { class: 'field' }, h('span', {}, 'Подтверждение'), fConf),
     h('label', { class: 'field' }, h('span', {}, 'Заметка'), fNote),
     h('div', { class: 'row' },
@@ -1853,11 +1897,13 @@ function openTrip(t) {
     h('div', { class: 'layout' },
       els.budget,
       h('div', { class: 'l-main' }, els.nav, els.plan),
-      h('div', { class: 'l-rest' },
+      els.rest = h('div', { class: 'l-rest' },
         h('section', { class: 'panel' }, h('h2', {}, 'Кто едет'), els.people),
         buildDistPanel(t),
         buildSharePanel(t), !settingsOnTop && settings)));
   renderPeople(); refresh(); syncShare();
+  foldPanels([...els.rest.children]);
+  jumpToday(t);
 }
 
 /* ---- приглашения в Google Календарь: делает скрипт владельца, e-mail идут только к нему и в таблицу не попадают ---- */
@@ -1914,6 +1960,27 @@ function renderInvite() {
     btn,
     sent && h('p', { class: 'muted' }, 'Отправлено ' + new Date(sent.at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '. После изменений плана, дат или списка участников нажмите «Обновить приглашения»: событие обновится, новые участники получат приглашение.')
   ] : [h('p', { class: 'muted', style: 'margin:0' }, 'Добавьте выше e-mail участников (Gmail), и здесь появится кнопка: они получат приглашение с поездкой в Google Календаре.')]);
+}
+
+/* На телефоне вспомогательные блоки свёрнуты: сначала план, остальное по нажатию на заголовок. */
+const narrow = () => !!window.matchMedia && matchMedia('(max-width: 700px)').matches;
+function foldPanels(panels) {
+  if (!narrow()) return;
+  panels.forEach(p => {
+    const head = p && p.firstElementChild;
+    if (!head || head.tagName !== 'H2') return;
+    p.classList.add('fold');
+    head.setAttribute('role', 'button'); head.tabIndex = 0; head.setAttribute('aria-expanded', 'false');
+    const flip = () => head.setAttribute('aria-expanded', String(p.classList.toggle('open')));
+    head.addEventListener('click', flip);
+    head.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  });
+}
+/* Идёт ли поездка сейчас: на телефоне открываем сразу сегодняшний день. */
+function jumpToday(t) {
+  const today = todayISO();
+  if (!narrow() || !inRange(t, today)) return;
+  setTimeout(() => { const d = document.getElementById('day-' + today); if (d && document.body.contains(d)) d.scrollIntoView({ block: 'start' }); }, 120);
 }
 
 function renderPeople() {
@@ -2109,6 +2176,7 @@ function showReadOnly(t, head) {
         h('button', { class: 'btn', onclick: () => downloadICS(t) }, 'Скачать .ics'))),
     h('div', { class: 'layout' }, budget, h('div', { class: 'l-main' }, nav, plan)));
   renderHero(hero, t); renderBudget(budget, t); renderNav(nav, t); renderDays(plan, t, false); watchDays();
+  jumpToday(t);
 }
 function importTrip(t) {
   t.updated = Date.now();                       // импортированная копия считается самой свежей и уйдёт в облако
