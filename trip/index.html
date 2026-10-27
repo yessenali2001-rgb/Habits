@@ -604,10 +604,19 @@ function normTrip(o) {
   });
   return t;
 }
+/* Две поездки с одним номером (так в таблице оказались две «Астаны»): оставляем более свежую, при равенстве ту, где больше пунктов. Порядок сохраняется. */
+function dedupeTrips(list) {
+  const best = new Map();
+  list.forEach(t => {
+    const b = best.get(t.id);
+    if (!b || t.updated > b.updated || (t.updated === b.updated && t.items.length > b.items.length)) best.set(t.id, t);
+  });
+  return list.filter(t => best.get(t.id) === t);
+}
 function load() {
   try {
     const d = JSON.parse(localStorage.getItem(STORE));
-    if (d && Array.isArray(d.trips)) state.trips = d.trips.map(normTrip).filter(Boolean);
+    if (d && Array.isArray(d.trips)) state.trips = dedupeTrips(d.trips.map(normTrip).filter(Boolean));
     if (d && d.deleted && typeof d.deleted === 'object') Object.keys(d.deleted).forEach(k => { if (goodId(k) && +d.deleted[k] > 0) state.deleted[k] = +d.deleted[k]; });
   } catch (e) {}
 }
@@ -1088,7 +1097,7 @@ const SAMPLES = [
    любой, у кого есть адрес скрипта, поэтому без секретной фразы страница показывает поездки владельца только для просмотра;
    записывать можно только с секретной фразой, которую знает владелец.
    Поездки склеиваются по времени последней правки: у каждой побеждает более свежая копия; удалённые помечаются отдельно. */
-const BUILD = '2026-10-26.1';                    // номер версии страницы; при каждой выкладке меняется вместе с trip/version.txt
+const BUILD = '2026-10-27.1';                    // номер версии страницы; при каждой выкладке меняется вместе с trip/version.txt
 const SYNC_KEY = 'tripSync.v3', PUB_KEY = 'tripPublic.v1';
 const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxMLPTbyk_uwq3XS61RiJsQYGZDpWT2uV-Kpm0MJRdOIpOnjdNyXXpbBLCys9aDlDaZ/exec';                          // адрес развёртывания скрипта (оканчивается на /exec): если вписать его сюда, другим устройствам и посетителям вводить его не нужно
 const SHEETS_SCRIPT = `// Планировщик поездок: хранение в Google Таблице.
@@ -1302,7 +1311,12 @@ function keepMails(r, mine) {
 function mergeRemote(remote) {
   let changed = false;
   const rt = new Map();
-  (remote && Array.isArray(remote.trips) ? remote.trips : []).slice(0, 200).map(normTrip).filter(Boolean).forEach(t => rt.set(t.id, t));
+  const rlist = (remote && Array.isArray(remote.trips) ? remote.trips : []).slice(0, 200).map(normTrip).filter(Boolean);
+  const rdedup = dedupeTrips(rlist);
+  rdedup.forEach(t => rt.set(t.id, t));
+  const healed = state.trips.length;
+  state.trips = dedupeTrips(state.trips);
+  if (state.trips.length !== healed) changed = true;
   const rdel = remote && remote.deleted && typeof remote.deleted === 'object' ? remote.deleted : {};
   Object.keys(rdel).forEach(id => {
     const ts = +rdel[id];
@@ -1319,7 +1333,8 @@ function mergeRemote(remote) {
   });
   const ids = Object.keys(state.deleted);
   if (ids.length > 100) ids.sort((a, b) => state.deleted[a] - state.deleted[b]).slice(0, ids.length - 100).forEach(id => { delete state.deleted[id]; });
-  const needPush = state.trips.some(t => { const r = rt.get(t.id); return !r || t.updated > r.updated; })
+  const needPush = rdedup.length !== rlist.length                      // в таблице были двойники: перезапишем без них
+    || state.trips.some(t => { const r = rt.get(t.id); return !r || t.updated > r.updated; })
     || Object.keys(state.deleted).some(id => !(id in rdel) || state.deleted[id] > +rdel[id]);
   return { changed, needPush };
 }
@@ -1378,7 +1393,7 @@ function loadPublic(force) {
     try { data = (await sheetRead()).data; } catch (e) {}
     if (data && Array.isArray(data.trips)) {
       const del = data.deleted && typeof data.deleted === 'object' ? data.deleted : {};
-      pub = data.trips.slice(0, 200).map(normTrip).filter(t => t && !(+del[t.id] >= t.updated));
+      pub = dedupeTrips(data.trips.slice(0, 200).map(normTrip).filter(t => t && !(+del[t.id] >= t.updated)));
       try { localStorage.setItem(PUB_KEY, JSON.stringify({ trips: pub })); } catch (e) {}
     } else if (!pub) pub = [];
   })().then(() => { pubWait = null; rerender(); }, () => { pubWait = null; });
@@ -1558,6 +1573,7 @@ function addAstanaIdeas() {
   location.hash = '#trip=' + encodeURIComponent(mine.id);
 }
 function addSample(id) {
+  if (state.trips.some(x => x.id === id)) { location.hash = '#trip=' + encodeURIComponent(id); return; }     // поездка уже есть: второй копии не делаем
   const t = SAMPLES.find(sp => sp.id === id).build();
   t.updated = 0;                                // пока заготовку не изменили, она не должна перекрывать такую же поездку с другого устройства
   state.trips.push(t); save();
