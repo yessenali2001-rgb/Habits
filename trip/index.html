@@ -334,6 +334,14 @@ pre.code { max-height:220px; overflow:auto; margin:10px 0; padding:12px; border-
 .group { margin:26px 0 12px; font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-weight:600; }
 
 /* свёрнутые блоки на телефоне: сначала план, остальное по нажатию на заголовок */
+/* погода в день */
+.wx { margin:0 0 6px; padding:10px 12px; border-radius:14px; background:var(--surface2); }
+.wx-top { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+.wx-ic { font-size:20px; line-height:1; }
+.wx-top b { font-size:16px; font-variant-numeric:tabular-nums; }
+.wx-d { color:var(--muted); font-size:13px; }
+.wx-m { margin-left:auto; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+.wx-ad { margin:6px 0 0; font-size:13.5px; line-height:1.4; }
 /* плашка «вышла новая версия» */
 .upd { position:fixed; left:12px; right:12px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:50; display:flex; gap:12px; align-items:center; justify-content:space-between;
   padding:12px 14px; border-radius:16px; background:var(--tx); color:var(--bg); box-shadow:0 12px 30px -10px rgba(0,0,0,.5); max-width:560px; margin:0 auto; }
@@ -1092,12 +1100,195 @@ const SAMPLES = [
   { id: SAMPLE_ID, title: 'План из вашей таблицы: Алматы – Бишкек', note: '11–15 декабря · 5 дней · расходы 97 000 ₸', build: sampleTrip }
 ];
 
+/* ================= погода и что надеть (Open-Meteo, без ключа) ================= */
+/* На 16 дней вперёд берём прогноз. Дальше прогноза нет, поэтому показываем, какая погода обычно бывает в эти даты (среднее за три прошлых года).
+   Для прошедших дней показываем, какая погода была. Город для дня берём из пунктов «Прибытие»; запросы идут только в Open-Meteo. */
+const WX_KEY = 'tripWeather.v1';
+const WX_DAILY = 'weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max';
+const WX_TTL = { fc: 3 * 3600e3, old: 30 * 864e5, norm: 30 * 864e5, none: 3600e3 };
+let wxCache = loadCache(WX_KEY);
+const wxLast = { box: null, trip: null, loading: '' };
+
+const fmtT = n => (n > 0.5 ? '+' : n < -0.5 ? '−' : '') + Math.abs(Math.round(n));
+function wmo(code) {
+  if (code === 0) return ['☀️', 'ясно'];
+  if (code === 1) return ['🌤️', 'малооблачно'];
+  if (code === 2) return ['⛅', 'переменная облачность'];
+  if (code === 3) return ['☁️', 'пасмурно'];
+  if (code === 45 || code === 48) return ['🌫️', 'туман'];
+  if (code >= 51 && code <= 57) return ['🌦️', 'морось'];
+  if (code >= 61 && code <= 67) return ['🌧️', 'дождь'];
+  if (code >= 71 && code <= 77) return ['❄️', 'снег'];
+  if (code >= 80 && code <= 82) return ['🌧️', 'ливни'];
+  if (code === 85 || code === 86) return ['🌨️', 'снегопад'];
+  if (code >= 95) return ['⛈️', 'гроза'];
+  return ['🌡️', ''];
+}
+const WX_ITEMS = ['лёгкая одежда', 'головной убор', 'солнцезащитные очки', 'вода', 'футболка', 'тонкая кофта', 'свитер', 'лёгкая куртка', 'тёплая куртка', 'зимняя куртка',
+  'термобельё', 'шапка', 'шарф', 'перчатки', 'тёплая обувь', 'зонт', 'непромокаемая обувь', 'ветровка'];
+/* Что надеть: по тому, как ощущается дневная температура, плюс осадки и ветер. */
+function wxAdvice(w) {
+  const hi = isFinite(w.fmax) ? w.fmax : w.tmax, lo = isFinite(w.fmin) ? w.fmin : w.tmin;
+  const items = [], notes = [];
+  let head;
+  if (hi >= 30) { head = 'очень жарко'; items.push('лёгкая одежда', 'головной убор', 'солнцезащитные очки', 'вода'); }
+  else if (hi >= 24) { head = 'жарко'; items.push('футболка', 'головной убор', 'солнцезащитные очки'); }
+  else if (hi >= 18) { head = 'тепло'; items.push('футболка'); if (lo < 12) items.push('тонкая кофта'); }
+  else if (hi >= 12) { head = 'прохладно'; items.push('свитер', 'лёгкая куртка'); }
+  else if (hi >= 5) { head = 'холодно'; items.push('тёплая куртка', 'свитер', 'шапка'); }
+  else if (hi >= -5) { head = 'очень холодно'; items.push('зимняя куртка', 'шапка', 'шарф', 'перчатки'); }
+  else if (hi >= -15) { head = 'мороз'; items.push('зимняя куртка', 'термобельё', 'шапка', 'шарф', 'перчатки', 'тёплая обувь'); }
+  else { head = 'сильный мороз'; items.push('зимняя куртка', 'термобельё', 'шапка', 'шарф', 'перчатки', 'тёплая обувь'); notes.push('закрывайте лицо от ветра, долго на улице не гуляйте'); }
+  if (hi - lo >= 10 && hi < 24) notes.push('утром и вечером заметно холоднее: одевайтесь слоями');
+  const snow = w.code >= 71 && w.code <= 77 || w.code === 85 || w.code === 86;
+  const wet = w.pop >= 50 || w.rain >= 2 || (w.code >= 51 && w.code <= 67) || (w.code >= 80 && w.code <= 82);
+  if (snow || (wet && hi <= 1)) { items.push('непромокаемая обувь'); notes.push('возможен снег'); }
+  else if (wet) { items.push('зонт'); if (w.rain >= 10) notes.push('сильный дождь: нужна непромокаемая куртка'); }
+  if (w.code >= 95) notes.push('возможна гроза: в грозу не гуляйте на открытом месте');
+  if (w.wind >= 10) { items.push('ветровка'); notes.push('сильный ветер'); }
+  else if (w.wind >= 7 && hi < 18) items.push('ветровка');
+  return { head, items: [...new Set(items)], notes };
+}
+
+/* Город дня: где проходит большая часть пунктов с «Прибытием» до них; если пунктов нет, последний город из направления поездки. */
+function dayCities(t) {
+  const ctx = cityContext(t), out = {}, last = (t.dest.split(/\s*[–—-]\s*/).pop() || '').trim();
+  tripDays(t).forEach(d => {
+    const n = {};
+    dayItems(t, d).forEach(i => { const c = ctx.get(i); if (c) n[c] = (n[c] || 0) + 1; });
+    const best = Object.keys(n).sort((a, b) => n[b] - n[a])[0];
+    out[d] = best || last || '';
+  });
+  return out;
+}
+function wxMode(d) {
+  const td = todayISO();
+  return d > addDays(td, 15) ? 'norm' : d < addDays(td, -7) ? 'old' : 'fc';
+}
+const wxKey = (city, d) => city.trim().toLowerCase() + '|' + d;
+function wxGet(city, d) {
+  const e = own(wxCache, wxKey(city, d)) ? wxCache[wxKey(city, d)] : null;
+  return e && Date.now() - e.at < (WX_TTL[e.v ? e.mode : 'none']) && e.mode === wxMode(d) ? e : null;
+}
+const wxPut = (city, d, mode, v) => { wxCache[wxKey(city, d)] = { at: Date.now(), mode, v }; };
+async function wxFetch(pt, kind, a, b) {
+  const base = kind === 'forecast' ? 'https://api.open-meteo.com/v1/forecast' : 'https://archive-api.open-meteo.com/v1/archive';
+  const daily = kind === 'forecast' ? WX_DAILY : WX_DAILY.replace(',precipitation_probability_max', '');
+  const range = kind === 'forecast' ? '&past_days=7&forecast_days=16' : '&start_date=' + a + '&end_date=' + b;
+  const j = await fetchJsonRetry(base + '?latitude=' + pt.lat + '&longitude=' + pt.lon + '&daily=' + daily + '&wind_speed_unit=ms&timezone=auto' + range, 1);
+  const x = j && j.daily, out = {};
+  if (!x || !Array.isArray(x.time)) return out;
+  x.time.forEach((d, i) => {
+    const v = k => (x[k] ? x[k][i] : null);
+    if (v('temperature_2m_max') == null || v('temperature_2m_min') == null) return;
+    out[d] = { tmax: v('temperature_2m_max'), tmin: v('temperature_2m_min'), fmax: v('apparent_temperature_max'), fmin: v('apparent_temperature_min'),
+      rain: v('precipitation_sum') || 0, pop: v('precipitation_probability_max'), wind: v('wind_speed_10m_max') || 0, code: v('weather_code') };
+  });
+  return out;
+}
+function shiftYears(d, k) {
+  const x = parseISO(d), m = x.getUTCMonth();
+  x.setUTCFullYear(x.getUTCFullYear() + k);
+  if (x.getUTCMonth() !== m) x.setUTCDate(0);            // 29 февраля в невисокосном году
+  return toISO(x);
+}
+/* Типичная погода: за три прошлых года берём окно в ±2 дня вокруг той же даты и усредняем. */
+async function wxNormals(pt, dates) {
+  const per = {};
+  dates.forEach(d => { per[d] = []; });
+  for (const k of [-1, -2, -3]) {
+    const days = await wxFetch(pt, 'archive', addDays(shiftYears(dates[0], k), -2), addDays(shiftYears(dates[dates.length - 1], k), 2));
+    dates.forEach(d => { for (let o = -2; o <= 2; o++) { const v = days[addDays(shiftYears(d, k), o)]; if (v) per[d].push(v); } });
+  }
+  const avg = (arr, f) => arr.reduce((s, v) => s + (isFinite(v[f]) ? v[f] : 0), 0) / arr.length;
+  const out = {};
+  dates.forEach(d => {
+    const a = per[d];
+    if (!a.length) return;
+    const codes = {};
+    a.forEach(v => { codes[v.code] = (codes[v.code] || 0) + 1; });
+    out[d] = { tmax: avg(a, 'tmax'), tmin: avg(a, 'tmin'), fmax: avg(a, 'fmax'), fmin: avg(a, 'fmin'), rain: avg(a, 'rain'), wind: avg(a, 'wind'),
+      pop: Math.round(a.filter(v => v.rain >= 1).length / a.length * 100), code: +Object.keys(codes).sort((x, y) => codes[y] - codes[x])[0] };
+  });
+  return out;
+}
+/* Догружает недостающее и перерисовывает. Одновременно для одной поездки идёт один запрос. */
+async function loadWeather(t) {
+  const cities = dayCities(t), need = {};
+  tripDays(t).forEach(d => { const c = cities[d]; if (c && !wxGet(c, d)) (need[c] = need[c] || []).push(d); });
+  const sig = t.id + '|' + JSON.stringify(need);
+  if (!Object.keys(need).length || wxLast.loading === sig) return;
+  wxLast.loading = sig;
+  try {
+    for (const city of Object.keys(need)) {
+      let pt = null;
+      try { pt = await geocode(city, true); } catch (e) { pt = null; }
+      const dates = need[city].sort();
+      if (!pt) { dates.forEach(d => wxPut(city, d, wxMode(d), null)); continue; }
+      const fc = dates.filter(d => wxMode(d) === 'fc'), old = dates.filter(d => wxMode(d) === 'old'), norm = dates.filter(d => wxMode(d) === 'norm');
+      try {
+        if (fc.length) { const days = await wxFetch(pt, 'forecast'); fc.forEach(d => wxPut(city, d, 'fc', days[d] || null)); }
+        if (old.length) { const days = await wxFetch(pt, 'archive', old[0], old[old.length - 1]); old.forEach(d => wxPut(city, d, 'old', days[d] || null)); }
+        if (norm.length) { const days = await wxNormals(pt, norm); norm.forEach(d => wxPut(city, d, 'norm', days[d] || null)); }
+      } catch (e) { /* нет связи: покажем позже, ничего не ломаем */ }
+    }
+    saveCache(WX_KEY, wxCache);
+  } finally { wxLast.loading = ''; }
+  if (wxLast.trip && wxLast.trip.id === t.id && wxLast.box && document.body.contains(wxLast.box)) paintWeather(wxLast.box, wxLast.trip, true);
+}
+const WX_LABEL = { fc: 'прогноз', old: 'было', norm: 'обычно в эти даты' };
+/* Рисует погоду из памяти и при необходимости запускает загрузку. */
+function paintWeather(box, t, noLoad) {
+  wxLast.box = box; wxLast.trip = t;
+  const cities = dayCities(t), shown = [];
+  box.querySelectorAll('.wx').forEach(el => {
+    const d = el.dataset.day, c = cities[d], e = c && wxGet(c, d), w = e && e.v;
+    el.replaceChildren();
+    el.classList.toggle('hide', !w);
+    if (!w) return;
+    const [ic, txt] = wmo(w.code), adv = wxAdvice(w);
+    shown.push({ d, w, adv, mode: e.mode, city: c });
+    append(el, [
+      h('div', { class: 'wx-top' },
+        h('span', { class: 'wx-ic', 'aria-hidden': 'true' }, ic),
+        h('b', {}, fmtT(w.tmin) + '…' + fmtT(w.tmax) + '°'),
+        h('span', { class: 'wx-d' }, [txt, w.pop != null && w.pop >= 20 ? 'осадки ' + Math.round(w.pop) + '%' : (w.pop == null && w.rain >= 1 ? 'осадки ≈ ' + Math.round(w.rain) + ' мм' : ''),
+          w.wind >= 1 ? 'ветер ' + Math.round(w.wind) + ' м/с' : ''].filter(Boolean).join(' · ')),
+        h('span', { class: 'wx-m' }, e.mode === 'fc' && d < todayISO() ? 'было' : WX_LABEL[e.mode])),
+      h('p', { class: 'wx-ad' }, h('b', {}, cap(adv.head) + ': '), adv.items.join(', ') + '.' + (adv.notes.length ? ' ' + cap(adv.notes.join('; ')) + '.' : ''))
+    ]);
+  });
+  renderWeatherPanel(t, shown);
+  if (!noLoad) loadWeather(t);
+}
+function renderWeatherPanel(t, shown) {
+  const box = els.wxBox;
+  if (!box) return;
+  box.replaceChildren();
+  if (!shown.length) {
+    append(box, [h('p', { class: 'muted', style: 'margin:0' }, dayCities(t)[t.start]
+      ? 'Погода появится, как только загрузится прогноз. Нужен интернет.' : 'Укажите в поездке «Куда» или пункт «Прибытие» с городом: по нему найдём погоду.')]);
+    return;
+  }
+  const lo = Math.min(...shown.map(s => s.w.tmin)), hi = Math.max(...shown.map(s => s.w.tmax));
+  const items = WX_ITEMS.filter(i => shown.some(s => s.adv.items.includes(i)));
+  const notes = [...new Set(shown.flatMap(s => s.adv.notes))];
+  const modes = [...new Set(shown.map(s => s.mode))];
+  append(box, [
+    h('p', { style: 'margin:0 0 8px' }, h('b', {}, 'За поездку: ' + fmtT(lo) + '…' + fmtT(hi) + '°. '), cap(shown.map(s => s.adv.head).filter((x, i, a) => a.indexOf(x) === i).join(', ')) + '.'),
+    h('p', { style: 'margin:0 0 8px' }, h('b', {}, 'Что взять: '), items.join(', ') + '.'),
+    notes.length > 0 && h('p', { class: 'muted', style: 'margin:0 0 8px' }, cap(notes.join('; ')) + '.'),
+    h('p', { class: 'muted', style: 'margin:0' }, (modes.includes('norm') ? 'Прогноз появляется за 16 дней до поездки, пока показана обычная погода в эти даты по данным прошлых лет. ' : '') +
+      (modes.includes('fc') ? 'Прогноз обновляется сам. ' : '') + 'Данные Open-Meteo: туда уходят только название города и даты.')
+  ]);
+}
+
 /* ================= хранение в Google Таблице и синхронизация между устройствами ================= */
 /* Поездки лежат в вашей Google Таблице, страница общается с ней через маленький скрипт Apps Script (trip/sheets.gs). Читать данные может
    любой, у кого есть адрес скрипта, поэтому без секретной фразы страница показывает поездки владельца только для просмотра;
    записывать можно только с секретной фразой, которую знает владелец.
    Поездки склеиваются по времени последней правки: у каждой побеждает более свежая копия; удалённые помечаются отдельно. */
-const BUILD = '2026-10-27.1';                    // номер версии страницы; при каждой выкладке меняется вместе с trip/version.txt
+const BUILD = '2026-10-27.2';                    // номер версии страницы; при каждой выкладке меняется вместе с trip/version.txt
 const SYNC_KEY = 'tripSync.v3', PUB_KEY = 'tripPublic.v1';
 const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxMLPTbyk_uwq3XS61RiJsQYGZDpWT2uV-Kpm0MJRdOIpOnjdNyXXpbBLCys9aDlDaZ/exec';                          // адрес развёртывания скрипта (оканчивается на /exec): если вписать его сюда, другим устройствам и посетителям вводить его не нужно
 const SHEETS_SCRIPT = `// Планировщик поездок: хранение в Google Таблице.
@@ -1703,7 +1894,8 @@ function renderDays(box, t, edit) {
       h('div', { class: 'dh' },
         h('div', { class: 'dtile' }, h('b', {}, dnum(d)), h('span', {}, dmon(d))),
         h('div', { class: 'dtitle' }, title, h('div', { class: 'dsub' + (n ? '' : ' warn') }, n ? sub : sub + ' · вне дат поездки')),
-        total > 0 && h('span', { class: 'dsum' }, money(total, t.currency))));
+        total > 0 && h('span', { class: 'dsum' }, money(total, t.currency))),
+      h('div', { class: 'wx hide', 'data-day': d }));
     const rows = [];
     let prev = null;
     its.forEach(it => {
@@ -1721,6 +1913,7 @@ function renderDays(box, t, edit) {
     box.append(sec);
   });
   if (edit) box.append(h('button', { class: 'btn addday', type: 'button', onclick: addDay }, '+ Добавить день'));
+  paintWeather(box, t);
 }
 function renderPlan() { renderDays(els.plan, cur, true); watchDays(); }
 function openSettings() {
@@ -1920,6 +2113,7 @@ function openTrip(t) {
       els.budget,
       h('div', { class: 'l-main' }, els.nav, els.plan),
       els.rest = h('div', { class: 'l-rest' },
+        h('section', { class: 'panel' }, h('h2', {}, 'Погода и что взять'), els.wxBox = h('div')),
         h('section', { class: 'panel' }, h('h2', {}, 'Кто едет'), els.people),
         buildDistPanel(t),
         buildSharePanel(t), !settingsOnTop && settings)));
