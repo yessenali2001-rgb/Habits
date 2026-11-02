@@ -433,7 +433,8 @@ const S = {
   groups:[], shareFrom:'',
   tab:'today', sel:null, day:null, weekOffset:0, monthOffset:0, rankMode:'plan',
   adding:false, emoji:EMOJI[0], color:PALETTE[0],
-  editing:null, editEmoji:EMOJI[0], editColor:PALETTE[0]
+  editing:null, editEmoji:EMOJI[0], editColor:PALETTE[0],
+  monthMode:'month', rangeFrom:null, rangeTo:null
 };
 let TODAY = fmt(new Date());
 
@@ -841,8 +842,83 @@ function monthCompare() {
     }).join('')+'</div></div>';
 }
 
+function rangeHeatmap(from, to) {
+  const start = startOfWeek(parseD(from));
+  const end = parseD(to);
+  const weeks = [];
+  let cur = start;
+  while (cur <= end) {
+    const col = [];
+    for (let i=0;i<7;i++) {
+      const d = addDays(cur,i), ds = fmt(d);
+      col.push(ds >= from && ds <= to ? ds : null);
+    }
+    weeks.push(col); cur = addDays(cur,7);
+  }
+  const marks = [];
+  weeks.forEach((col,i) => {
+    const f = col.find(Boolean); if (!f) return;
+    const mo = parseD(f).getMonth();
+    if (!marks.some(x => x.m === mo)) marks.push({m:mo,i:i});
+  });
+  let out = '<div class="scroll"><div class="year"><div class="months">'+
+    marks.map(x => '<span style="left:'+(x.i*14)+'px">'+MON_SHORT[x.m]+'</span>').join('')+'</div><div class="ygrid">';
+  weeks.forEach(col => {
+    out += '<div>' + col.map(d => {
+      if (!d) return '<div class="cell"></div>';
+      if (d > TODAY) return '<div class="cell" style="background:'+FUTURE()+'"></div>';
+      const i = dayInfo(S.habits,S.sums,d);
+      return '<div class="cell" title="'+d+'" style="'+fillCss(i.colors,i.frac,EMPTY())+'"></div>';
+    }).join('') + '</div>';
+  });
+  return out + '</div></div></div>';
+}
+
+function viewMonthRange() {
+  const today = TODAY;
+  const from = S.rangeFrom || fmt(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const to = S.rangeTo && S.rangeTo <= today ? S.rangeTo : today;
+  const days = from <= to ? rangeDays(parseD(from), parseD(to)) : [];
+  const m = stats(S.habits, S.sums, days);
+  const f = monthFacts(days);
+
+  let out = '<div class="daypick"><input class="inp sm" type="date" id="rangeFrom" value="'+from+'" max="'+today+'">'+
+    '<span class="muted">—</span>'+
+    '<input class="inp sm" type="date" id="rangeTo" value="'+to+'" max="'+today+'"></div>';
+
+  if (from > to) {
+    out += '<div class="empty">Начало периода позже конца. Поправьте даты.</div>';
+    return out;
+  }
+
+  out += '<div class="panel"><div class="panel-top"><span>'+parseD(from).getDate()+' '+MON_SHORT[parseD(from).getMonth()]+
+    ' – '+parseD(to).getDate()+' '+MON_SHORT[parseD(to).getMonth()]+'</span><b>'+m.pct+'%</b></div>'+bar(m.pct)+
+    '<div class="facts"><div><b>'+f.avg+'%</b><span>средний день</span></div>'+
+    '<div><b>'+f.best+'%</b><span>лучший день</span></div>'+
+    '<div><b>'+f.closed+'</b><span>дней план закрыт</span></div>'+
+    '<div><b>'+f.entries+'</b><span>записей за период</span></div></div></div>';
+
+  out += rangeHeatmap(from, to);
+
+  out += '<div class="panel" style="margin-top:16px"><div class="panel-top"><span>Итоги периода</span></div><div class="totals">';
+  S.habits.forEach(h => {
+    const tt = total(S.habits,S.sums,days,h);
+    out += '<div class="trow"><div class="tl"><span>'+esc(h.emoji)+'</span><span>'+esc(h.name)+'</span>'+
+      '<span class="v"><b>'+nf(tt.got)+'</b> из '+nf(tt.goal)+' '+esc(h.unit)+'</span></div>'+bar(tt.pct,h.color)+'</div>';
+  });
+  out += '</div></div>';
+  if (S.sel) out += dayPanel(S.sel);
+  return out;
+}
+
 function viewMonth() {
   if (!S.habits.length) return '<div class="empty">Сначала добавьте привычку на вкладке «Сегодня».</div>';
+
+  const modes = '<div class="modes">'+
+    '<button class="chip'+(S.monthMode==='month'?' on':'')+'" data-monthmode="month">Месяц</button>'+
+    '<button class="chip'+(S.monthMode==='range'?' on':'')+'" data-monthmode="range">Период</button></div>';
+  if (S.monthMode === 'range') return modes + viewMonthRange();
+
   const days = monthDaysAt(S.monthOffset);
   const first = parseD(days[0]);
   const lead = (first.getDay()+6)%7;
@@ -850,7 +926,7 @@ function viewMonth() {
   const m = stats(S.habits, S.sums, days);
   const f = monthFacts(days);
 
-  let out = '<div class="gnav">'+
+  let out = modes + '<div class="gnav">'+
     '<button class="btn tiny" data-monthnav="'+(S.monthOffset-1)+'">←</button>'+
     '<b>'+MONTHS[first.getMonth()]+(first.getFullYear()!==thisYear?' '+first.getFullYear():'')+'</b>'+
     '<button class="btn tiny" data-monthnav="'+(S.monthOffset+1)+'"'+(S.monthOffset>=0?' disabled':'')+'>→</button>'+
@@ -1071,7 +1147,7 @@ async function pushEntry(habitId, date, amount, btn) {
 }
 
 document.addEventListener('click', async e => {
-  const el = e.target.closest('[data-tab],[data-act],[data-emoji],[data-color],[data-day],[data-pick],[data-add],[data-quick],[data-delentry],[data-delhabit],[data-edithabit],[data-editemoji],[data-editcolor],[data-week],[data-monthnav],[data-leave],[data-mode]');
+  const el = e.target.closest('[data-tab],[data-act],[data-emoji],[data-color],[data-day],[data-pick],[data-add],[data-quick],[data-delentry],[data-delhabit],[data-edithabit],[data-editemoji],[data-editcolor],[data-week],[data-monthnav],[data-monthmode],[data-leave],[data-mode]');
   if (!el) return;
 
   if (el.dataset.tab) { S.tab = el.dataset.tab; S.sel = null; S.day = null; S.adding = false; S.editing = null; render(); return; }
@@ -1105,6 +1181,7 @@ document.addEventListener('click', async e => {
   if (el.dataset.day) { S.sel = S.sel === el.dataset.day ? null : el.dataset.day; render(); return; }
   if (el.dataset.week) { S.weekOffset = Number(el.dataset.week); render(); return; }
   if (el.dataset.monthnav) { S.monthOffset = Number(el.dataset.monthnav); S.sel = null; render(); return; }
+  if (el.dataset.monthmode) { S.monthMode = el.dataset.monthmode; S.sel = null; render(); return; }
 
   const act = el.dataset.act;
   if (act === 'open-add') { S.adding = true; render(); setTimeout(() => $('newName') && $('newName').focus(), 0); return; }
@@ -1235,6 +1312,12 @@ document.addEventListener('change', e => {
   if (e.target.id === 'pickDate' && e.target.value) {
     S.day = e.target.value > TODAY ? TODAY : e.target.value;
     render();
+  }
+  if (e.target.id === 'rangeFrom' && e.target.value) {
+    S.rangeFrom = e.target.value; render();
+  }
+  if (e.target.id === 'rangeTo' && e.target.value) {
+    S.rangeTo = e.target.value > TODAY ? TODAY : e.target.value; render();
   }
 });
 
