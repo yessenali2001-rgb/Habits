@@ -714,6 +714,8 @@ function editPanel(h) {
     '<select class="inp" id="ep_'+h.id+'">'+
     '<option value="day"'+(h.period!=='week'?' selected':'')+'>в день</option>'+
     '<option value="week"'+(h.period==='week'?' selected':'')+'>в неделю</option></select></div></div>'+
+    '<div class="field" style="margin-top:8px"><label for="ec_'+h.id+'">Дата начала</label>'+
+    '<input class="inp" id="ec_'+h.id+'" type="date" value="'+(h.createdAt||'')+'" max="'+TODAY+'"></div>'+
     '<div class="pickers"><div class="picker">'+
     EMOJI.map(e => '<button class="pick em'+(S.editEmoji===e?' on':'')+'" data-editemoji="'+e+'">'+e+'</button>').join('')+
     '</div><div class="picker">'+
@@ -1249,10 +1251,11 @@ document.addEventListener('click', async e => {
     const goal = Number($('eg_'+id).value) || 1;
     const unit = $('eu_'+id).value.trim() || 'раз';
     const period = $('ep_'+id).value;
+    const createdAt = $('ec_'+id).value;
     if (!name) { say('Впишите название привычки.', 'err'); return; }
     el.disabled = true;
     try {
-      const h = await api('editHabit', [S.code, S.token, id, name, S.editEmoji, S.editColor, unit, goal, period]);
+      const h = await api('editHabit', [S.code, S.token, id, name, S.editEmoji, S.editColor, unit, goal, period, createdAt]);
       const i = S.habits.findIndex(x => x.id === id);
       if (i >= 0) S.habits[i] = h;
       S.editing = null; render();
