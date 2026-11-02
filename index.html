@@ -495,6 +495,13 @@ function closedDays(habits, m, days) {
   }).length;
 }
 
+function yearTotal(h) {
+  const span = yearDays().filter(d => !(h.createdAt && d < h.createdAt));
+  const got = span.filter(d => d <= TODAY).reduce((s,d) => s + sumOf(S.sums,h.id,d), 0);
+  const goal = isWeekly(h) ? h.goal * (span.length/7) : h.goal * span.length;
+  return { got:got, goal:goal, left: Math.max(0, goal-got), pct: goal ? Math.min(100, Math.round(got/goal*100)) : 0 };
+}
+
 function total(habits, m, days, h) {
   let got = 0, n = 0;
   days.forEach(d => {
@@ -1002,9 +1009,11 @@ function viewYear(y) {
 
   out += '<div class="panel" style="margin-top:16px"><div class="panel-top"><span>Итоги года</span></div><div class="totals">';
   S.habits.forEach(h => {
-    const tt = total(S.habits,S.sums,yearDays(),h);
+    const tt = yearTotal(h);
     out += '<div class="trow"><div class="tl"><span>'+esc(h.emoji)+'</span><span>'+esc(h.name)+'</span>'+
-      '<span class="v"><b>'+nf(tt.got)+'</b> '+esc(h.unit)+'</span></div>'+bar(tt.pct,h.color)+'</div>';
+      '<span class="v"><b>'+nf(tt.got)+'</b> из '+nf(tt.goal)+' '+esc(h.unit)+'</span></div>'+bar(tt.pct,h.color)+
+      '<p class="hstreak">осталось '+nf(tt.left)+' '+esc(h.unit)+' до годовой нормы'+
+      (isWeekly(h) ? ' ('+nf(h.goal)+' '+esc(h.unit)+'/нед)' : '')+'</p></div>';
   });
   return out + '</div></div>';
 }
